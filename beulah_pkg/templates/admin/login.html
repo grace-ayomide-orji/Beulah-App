@@ -56,7 +56,7 @@
     <link rel="stylesheet" type="text/css" href="{{url_for('static',filename='css_folder/admin_stylesheet.min.css')}}">
 
     <!-- Non-critical stylesheets (loaded asynchronously) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css">
 
 
     <!-- Noscript fallback for critical styles -->
@@ -107,6 +107,10 @@
                          Log in
                     </button>
 
+                    <div class="admin-login-secondary-link">
+                        <a href="{{url_for('admin_forgot_password')}}">Forgot password?</a>
+                    </div>
+
                 </form>
 
             </div>
@@ -119,10 +123,10 @@
 
 
     <!-- Javascripts/jQuery starts here -->
-    <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
-    <script defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
+    <script nonce="{{ csp_nonce }}" defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
     <!-- Javascripts/jQuery ends here -->
-    <script>
+    <script nonce="{{ csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function(){
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             const loginForm = document.getElementById('login-form')

@@ -9,7 +9,7 @@
         <div class="admin-table-card-header">
             <div>
                 <h2 class="admin-table-card-title">Comments</h2>
-                <p class="admin-table-card-description">Review, filter, view, and delete comments across message and audio resources.</p>
+                <p class="admin-table-card-description">Review, filter, view, and delete comments across message, audio, slide, and blog resources.</p>
             </div>
         </div>
 
@@ -18,6 +18,17 @@
 
 
             <div class="filter-section">
+
+                <div class="select-style-1">
+                    <div class="select-position">
+                        <select class="form-select" name="status">
+                            <option value="all" {% if request.args.get('status', 'all') == 'all' %}selected{% endif %}>All Statuses</option>
+                            <option value="approved" {% if request.args.get('status') == 'approved' %}selected{% endif %}>Approved</option>
+                            <option value="unapproved" {% if request.args.get('status') == 'unapproved' %}selected{% endif %}>Unapproved</option>
+                            <option value="blocked" {% if request.args.get('status') == 'blocked' %}selected{% endif %}>Blocked</option>
+                        </select>
+                    </div>
+                </div>
 
                 <div class="select-style-1">
                         
@@ -75,27 +86,27 @@
                         </h5>
                     </th>
                     <th>
-                        <h5>Comment for</h5>
+                        <h5>Name</h5>
                     </th>
                     
                     <th>
-                        <h5>Comments</h5>
+                        <h5>Comment</h5>
                     </th>
 
                     <th>
-                        <h5>For</h5>
+                        <h5>Resource</h5>
+                    </th>
+
+                    <th>
+                        <h5>Status</h5>
                     </th>
 
                     <th>
                         <h5>Date</h5>
                     </th>
 
-                    <th>
-                        <h5>View</h5>
-                    </th>
-
                     <th class="sticky-action">
-                        <h5>Delete</h5>
+                        <h5>Actions</h5>
                     </th>
 
                     </tr>
@@ -105,6 +116,15 @@
                 <tbody>
                     {% if comments %}
                         {% for comment, resource in comments %}
+                            {% set comment_status = get_comment_status(comment) %}
+                            {% set resource_label = {'text': 'Message', 'audio': 'Audio', 'slide': 'Slide', 'blog': 'Blog'}.get(resource.resource_type, 'Resource') %}
+                            {% if resource.resource_type == 'blog' %}
+                                {% set resource_url = url_for('admin_blog_preview', id=resource.resource_id) %}
+                            {% elif resource.resource_type in ['text', 'audio', 'slide'] %}
+                                {% set resource_url = url_for('admin_resource_preview', id=resource.resource_id) %}
+                            {% else %}
+                                {% set resource_url = '' %}
+                            {% endif %}
                             <tr id="comment-{{comment.comment_id}}"
                             data-name="{{comment.comment_by}}"
                             data-content="{{comment.comment_body}}">
@@ -134,19 +154,47 @@
                             </td>
 
                             <td class="min-width special-td">
-                                <p>{{ resource.resource_type}}</p>
+                                <p>
+                                    {% if resource_url %}
+                                        <a href="{{ resource_url }}" target="_blank" rel="noopener noreferrer" title="Preview {{ resource_label }}">
+                                            {{ resource_label }}:
+                                            {% if resource.resource_title|length > 24 %}
+                                                {{ resource.resource_title[0:24] }}...
+                                            {% else %}
+                                                {{ resource.resource_title }}
+                                            {% endif %}
+                                        </a>
+                                    {% else %}
+                                        {{ resource_label }}:
+                                        {% if resource.resource_title|length > 24 %}
+                                            {{ resource.resource_title[0:24] }}...
+                                        {% else %}
+                                            {{ resource.resource_title }}
+                                        {% endif %}
+                                    {% endif %}
+                                </p>
+                            </td>
+
+                            <td class="min-width">
+                                <p><span class="badge comment-status-badge comment-status-{{ comment_status }}">{{ comment_status_labels[comment_status] }}</span></p>
                             </td>
 
                             <td class="min-width">
                                 <p class="convert-time" data-utc="{{ comment.comment_date.isoformat() }}Z"></p>
                             </td>
 
-                            <td class="view-action">
-                                <p class="pointer view-comment-btn"  data-id="{{comment.comment_id}}"><i class="fa-regular fa-eye"></i>View</p>
-                            </td>
-
                             <td class="action sticky-action">
-                                <p class="pointer delete-comment-btn" data-id="{{comment.comment_id}}"> <i class="fa-regular fa-trash-can"></i></p>
+                                <button type="button" class="view-comment-btn view-action" data-id="{{comment.comment_id}}" title="View"><i class="fa-regular fa-eye"></i></button>
+                                {% if comment_status != 'approved' %}
+                                    <button type="button" class="comment-status-action publish-action" data-id="{{ comment.comment_id }}" data-status="approved" title="Approve"><i class="fa-solid fa-check"></i></button>
+                                {% endif %}
+                                {% if comment_status != 'unapproved' %}
+                                    <button type="button" class="comment-status-action draft-action" data-id="{{ comment.comment_id }}" data-status="unapproved" title="Unapprove"><i class="fa-solid fa-eye-slash"></i></button>
+                                {% endif %}
+                                {% if comment_status != 'blocked' %}
+                                    <button type="button" class="comment-status-action suspend-action" data-id="{{ comment.comment_id }}" data-status="blocked" title="Block"><i class="fa-solid fa-ban"></i></button>
+                                {% endif %}
+                                <button type="button" class="delete-comment-btn delete-action" data-id="{{comment.comment_id}}" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
                             </td>
                             </tr>
                         {% endfor %}
@@ -162,7 +210,7 @@
         </div>
     </div>
     {% set pagination_label = 'comments' %}
-    {% set pagination_query = 'sortOrder=' ~ request.args.get('sortOrder', 'desc') ~ '&month=' ~ request.args.get('month', 'all') %}
+    {% set pagination_query = 'sortOrder=' ~ request.args.get('sortOrder', 'desc') ~ '&month=' ~ request.args.get('month', 'all') ~ '&status=' ~ request.args.get('status', 'all') %}
     {% include 'admin/_pagination_footer.html' %}
     </div>
 
@@ -191,9 +239,9 @@
 {% endblock content %}
 
 {% block script %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.3/luxon.min.js"></script>
+<script nonce="{{ csp_nonce }}" src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.3/luxon.min.js"></script>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 
 document.addEventListener('DOMContentLoaded', function(){
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -246,6 +294,36 @@ document.addEventListener('DOMContentLoaded', function(){
                 .catch(error => console.error('Error:', error));
             })
  
+        });
+    });
+
+
+    document.querySelectorAll('.comment-status-action').forEach(button => {
+        button.addEventListener('click', function () {
+            const commentId = this.dataset.id;
+            const status = this.dataset.status;
+
+            fetch('{{ url_for("admin_update_comment_status") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ id: commentId, status: status })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alertSuccess2('Successful', data.message);
+                    setTimeout(() => window.location.reload(), 700);
+                    return;
+                }
+                alertError('Error', data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alertError('Error', 'Something went wrong. Please try again.');
+            });
         });
     });
 
@@ -306,8 +384,9 @@ document.addEventListener('DOMContentLoaded', function(){
     
         const sortOrder = document.querySelector('select[name="sortOrder"]').value;
         const month = document.querySelector('select[name="month"]').value;
+        const status = document.querySelector('select[name="status"]').value;
     
-        const url = `${baseUrl}?page=1&sortOrder=${sortOrder}&month=${month}`;
+        const url = `${baseUrl}?page=1&sortOrder=${sortOrder}&month=${month}&status=${status}`;
         window.location.href = url;
     
     });

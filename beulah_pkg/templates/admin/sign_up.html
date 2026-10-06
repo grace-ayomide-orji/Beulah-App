@@ -53,17 +53,17 @@
     <!-- Critical stylesheets -->
     <link rel="stylesheet" href="{{url_for('static', filename='assets/bootstrap/css/bootstrap.min.css')}}" crossorigin="anonymous">
     <link rel="stylesheet" href="{{url_for('static', filename='assets/fa/css/all.min.css')}}" crossorigin="anonymous">
-    <link rel="stylesheet" type="text/css" href="{{url_for('static',filename='css_folder/admin_stylesheet.css')}}">
+    <link rel="stylesheet" type="text/css" href="{{url_for('static',filename='css_folder/admin_stylesheet.min.css')}}">
 
     <!-- Non-critical stylesheets (loaded asynchronously) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css">
 
 
     <!-- Noscript fallback for critical styles -->
     <noscript>
         <link rel="stylesheet" href="{{url_for('static', filename='assets/bootstrap/css/bootstrap.min.css')}}">
         <link rel="stylesheet" href="{{url_for('static', filename='assets/fa/css/all.min.css')}}">
-        <link rel="stylesheet" href="{{url_for('static', filename='css_folder/admin_stylesheet.css')}}">
+        <link rel="stylesheet" href="{{url_for('static', filename='css_folder/admin_stylesheet.min.css')}}">
     </noscript>
     
     {% block link %} {% endblock link %}
@@ -127,11 +127,11 @@
 
 
     <!-- Javascripts/jQuery starts here -->
-    <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
-    <script defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
+    <script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
+    <script nonce="{{ csp_nonce }}" defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
     
-    <script>
+    <script nonce="{{ csp_nonce }}">
     document.addEventListener('DOMContentLoaded', function(){
         const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
         const SignUpForm = document.getElementById('sign-up-form')

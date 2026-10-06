@@ -23,5 +23,3 @@ env/
 # instance/
 
 # Migrations folder (Only ignore if you don’t want to track them)
-migrations
-migrations/

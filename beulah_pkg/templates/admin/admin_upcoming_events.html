@@ -56,12 +56,8 @@
                         <h5>Date posted</h5>
                     </th>
 
-                    <th>
-                        <h5>Edit</h5>
-                    </th>
-
                     <th class="sticky-action">
-                        <h5>Delete</h5>
+                        <h5>Actions</h5>
                     </th>
 
                     </tr>
@@ -121,23 +117,20 @@
                                     <p>{{ event.event_updated_date.strftime('%d-%b-%Y') }}</p>
                                 </td>
 
-                                <td class="edit-action">
-                                    <p class="pointer"><a href="{{ url_for('edit_event', id=event.event_id) }}"><i class="fa-regular fa-pen-to-square"></i> Edit</a></p>
-                                </td>
-
                                 <td class="action sticky-action">
-                                    <p class="pointer delete-event-btn" data-id='{{event.event_id}}'><i class="fa-regular fa-trash-can"></i></p>
+                                    <a class="edit-action" href="{{ url_for('edit_event', id=event.event_id) }}" title="Edit"><i class="fa-regular fa-pen-to-square"></i></a>
+                                    <button type="button" class="delete-event-btn delete-action" data-id='{{event.event_id}}' title="Delete"><i class="fa-regular fa-trash-can"></i></button>
                                 </td>
 
                             </tr> 
                         {% else%}
                             <tr>
-                                <td colspan="10" class="text-center"><p>No Event Found</p></td>
+                                <td colspan="9" class="text-center"><p>No Event Found</p></td>
                             </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="10" class="text-center"><p>No Event Found</p></td>
+                            <td colspan="9" class="text-center"><p>No Event Found</p></td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -150,7 +143,7 @@
 {% endblock content %}
 
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}">
 
 document.addEventListener('DOMContentLoaded', function(){
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');

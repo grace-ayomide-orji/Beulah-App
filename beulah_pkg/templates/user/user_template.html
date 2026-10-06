@@ -3,29 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-    <title>{% block title %}Beulah Foundation for Christ{% endblock %}</title>
+    {% set default_site_title = 'Beulah Foundation for Christ' %}
+    {% set default_site_description = 'Beulah Foundation for Christ is a God-founded ministry dedicated to preparing believers for the return of Jesus Christ through evangelism and discipleship (Matthew 28:18-20). Rooted in the mandate of Isaiah 62:4, our mission is to nurture true Christlike character in all aspects of life. We serve as a resource for spiritual growth, equipping the Body of Christ while contributing to societal well-being. Join us on this divine journey and become part of our joyful family in Christ!' %}
+    {% set default_og_title = 'Beulah Foundation for Christ - A Christian Ministry for Discipleship and Spiritual Growth' %}
+    {% set default_og_image = url_for('static', filename='images/new_logo.png', _external=True) %}
+    <title>{% block title %}{{ page_title|default(default_site_title) }}{% endblock %}</title>
    
 
     <!-- SEO configuration starts here -->
     <meta name="keywords" content="Beulah Foundation for Christ, Christian ministry, evangelism and discipleship, preparing for Christ's return, biblical discipleship, Christ-centered ministry, gospel outreach, Matthew 28:18-20 ministry, Isaiah 62:4 mandate, spiritual growth, Body of Christ, Christian character development, faith-based organization, Christian teaching and training, how to grow spiritually in Christ, Christian ministry focused on discipleship, evangelism and discipleship training, biblical resources for Christian growth, preparing for the second coming of Jesus, becoming Christlike in daily life"/>
-    <meta name="description" content="Beulah Foundation for Christ is a God-founded ministry dedicated to preparing believers for the return of Jesus Christ through evangelism and discipleship (Matthew 28:18-20). Rooted in the mandate of Isaiah 62:4, our mission is to nurture true Christlike character in all aspects of life. We serve as a resource for spiritual growth, equipping the Body of Christ while contributing to societal well-being. Join us on this divine journey and become part of our joyful family in Christ!">
+    <meta name="description" content="{{ meta_description|default(default_site_description) }}">
     <meta name="author" content="Oloruntobi Grace"/>
 
-    <meta property="og:title" content="Beulah Foundation for Christ - A Christian Ministry for Discipleship and Spiritual Growth"/>
-    <meta property="og:description" content="Beulah Foundation for Christ is a God-founded ministry dedicated to preparing believers for the return of Jesus Christ through evangelism and discipleship (Matthew 28:18-20). Rooted in the mandate of Isaiah 62:4, our mission is to nurture true Christlike character in all aspects of life. We serve as a resource for spiritual growth, equipping the Body of Christ while contributing to societal well-being. Join us on this divine journey and become part of our joyful family in Christ!"/>
-    <meta property="og:image" content="{{url_for('static', filename='images/new_logo.png')}}"/>
-    <meta property="og:url" content="{{url_for('home')}}"/>
+    <meta property="og:title" content="{{ og_title|default(page_title|default(default_og_title)) }}"/>
+    <meta property="og:description" content="{{ og_description|default(meta_description|default(default_site_description)) }}"/>
+    <meta property="og:image" content="{{ og_image_url|default(default_og_image) }}"/>
+    <meta property="og:url" content="{{ canonical_url|default(url_for('home', _external=True)) }}"/>
     <meta property="og:locale" content="en_NG"/>
 
 
-    <meta name="twitter:title" content="Beulah Foundation for Christ - A Christian Ministry for Discipleship and Spiritual Growth"/>
-    <meta name="twitter:description" content="Beulah Foundation for Christ is a God-founded ministry dedicated to preparing believers for the return of Jesus Christ through evangelism and discipleship (Matthew 28:18-20). Rooted in the mandate of Isaiah 62:4, our mission is to nurture true Christlike character in all aspects of life. We serve as a resource for spiritual growth, equipping the Body of Christ while contributing to societal well-being. Join us on this divine journey and become part of our joyful family in Christ!"/>
-    <meta name="twitter:image" content="{{url_for('static', filename='images/new_logo.png')}}"/>
-    <meta name="twitter:url" content="{{url_for('home')}}"/>
+    <meta name="twitter:title" content="{{ og_title|default(page_title|default(default_og_title)) }}"/>
+    <meta name="twitter:description" content="{{ og_description|default(meta_description|default(default_site_description)) }}"/>
+    <meta name="twitter:image" content="{{ og_image_url|default(default_og_image) }}"/>
+    <meta name="twitter:url" content="{{ canonical_url|default(url_for('home', _external=True)) }}"/>
     <meta property="twitter:locale" content="en_NG"/>
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <link rel="canonical" href="https://beufoundation.org/">
+    <link rel="canonical" href="{{ canonical_url|default('https://beufoundation.org/') }}">
 
     <!-- SEO configuration ends here -->
      
@@ -57,9 +61,9 @@
     <link rel="stylesheet" href="{{url_for('static', filename='assets/fa/css/all.min.css')}}" crossorigin="anonymous">
     <link rel="stylesheet" href="{{url_for('static', filename='css_folder/user_stylesheet.min.css')}}">
 
-    <!-- Non-critical stylesheets (loaded asynchronously) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css" media="print" onload="this.media='all'">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css" media="print" onload="this.media='all'">
+    <!-- Non-critical stylesheets -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
 
     <!-- Noscript fallback for critical styles -->
     <noscript>
@@ -68,11 +72,13 @@
         <link rel="stylesheet" href="{{url_for('static', filename='css_folder/user_stylesheet.min.css')}}">
     </noscript>
 
+    {% block link %}{% endblock link %}
+
 
     <!-- Stylesheets links ends here -->
 
     <!-- this is for turnstile from cloufare captcha service -->
-    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    <script nonce="{{ csp_nonce }}" src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 
 
    
@@ -92,7 +98,7 @@
 
     <div class="container-fluid content-container" id="content-container">
 
-        {% if request.endpoint not in ['book_session', 'privacy_cookie_notice'] %}
+        {% if not request.path.startswith('/admin/') and request.endpoint not in ['book_session', 'privacy_cookie_notice'] %}
         <div class="counselling-prompt-modal" id="counselling-prompt-modal" aria-hidden="true">
             <div class="counselling-prompt-dialog" data-aos="fade-up" data-aos-duration="5000" role="dialog" aria-modal="true" aria-labelledby="counselling-prompt-title">
                 <button type="button" class="counselling-prompt-close" id="counselling-prompt-close" aria-label="Close counselling prompt">
@@ -113,6 +119,7 @@
         </div>
         {% endif %}
 
+        {% if not request.path.startswith('/admin/') %}
         <div class="cookie-notice" id="cookie-notice" aria-hidden="true">
             <div class="cookie-notice-content">
                 <p>
@@ -126,6 +133,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
       
         {% block content %}
 
@@ -214,10 +222,10 @@
 
 
     <!-- Javascripts/jQuery starts here -->
-    <script defer src="{{url_for('static',filename='assets/bootstrap/js/bootstrap.bundle.min.js')}}"></script>
-    <script src="{{url_for('static', filename='javascript_folder/user_script.min.js')}}"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
-    <script>
+    <script nonce="{{ csp_nonce }}" defer src="{{url_for('static',filename='assets/bootstrap/js/bootstrap.bundle.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" src="{{url_for('static', filename='javascript_folder/user_script.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    <script nonce="{{ csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function () {
             const year = document.getElementById("year");
             year.textContent = new Date().getFullYear();

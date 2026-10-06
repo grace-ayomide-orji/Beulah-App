@@ -73,7 +73,7 @@
                         <th><h5>Email</h5></th>
                         <th><h5>Status</h5></th>
                         <th><h5>Date Joined</h5></th>
-                        <th class="sticky-action"><h5>Delete</h5></th>
+                        <th class="sticky-action"><h5>Actions</h5></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -85,7 +85,7 @@
                             <td><p class="pointer">{{ subscriber.subscriber_status }}</p></td>
                             <td><p>{{ subscriber.subscriber_date_joined.strftime('%d-%b-%Y')}}</p></td>
                             <td class="action text-start sticky-action">
-                                <p class="pointer delete-subscriber-btn" data-id="{{subscriber.subscriber_id}}"><i class="fa-regular fa-trash-can"></i></p>
+                                <button type="button" class="delete-subscriber-btn delete-action" data-id="{{subscriber.subscriber_id}}" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
                             </td>
                         </tr>
                         {% endfor %}
@@ -108,7 +108,7 @@
 
 {% block script %}
 
-<script>
+<script nonce="{{ csp_nonce }}">
 
 document.addEventListener('DOMContentLoaded', function(){
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');

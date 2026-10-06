@@ -1,6 +1,6 @@
 import os, secrets
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from flask import Flask, render_template,redirect,request,flash,url_for,session,jsonify,current_app, abort
 from werkzeug.utils import secure_filename
 from functools import wraps
@@ -8,28 +8,73 @@ from werkzeug.security import check_password_hash,generate_password_hash
 from flask_sqlalchemy import pagination
 from sqlalchemy.sql import func
 from sqlalchemy import extract
+from bleach.css_sanitizer import CSSSanitizer
 from bleach.sanitizer import Cleaner
 from beulah_pkg import app, limiter
 from beulah_pkg.models import db, NewsletterSubscriber,Resource,Admin, AdminMfaChallenge, AdminAuditLog, Comment, PrayerRequest, Event, Notification, Slide, Booking, Booker, Donation, WorkingHours, BlockedDate, RecurringUnavailability
 from markupsafe import escape
 from beulah_pkg.event_uploads import save_event_flyer,delete_event_flyer
-from beulah_pkg.google_calendar import delete_calendar_event
+from beulah_pkg.blog_helpers import (
+    BLOG_STATUSES,
+    blog_plain_text,
+    blog_text_summary,
+    normalize_tiptap_json,
+    sanitize_blog_html,
+    unique_blog_slug,
+)
+from beulah_pkg.blog_uploads import save_blog_image, delete_blog_image
+from beulah_pkg.availability_helpers import SESSION_DURATION_MINUTES, is_slot_available
+from beulah_pkg.booking_emails import send_booking_rescheduled_confirmation, send_counselor_notification
+from beulah_pkg.google_calendar import create_calendar_event, delete_calendar_event, update_calendar_event
 from beulah_pkg.admin_security import (
     create_admin_session,
     create_mfa_challenge,
+    create_password_reset_token,
     current_admin_id_from_session,
+    get_password_reset_record,
     is_admin_locked,
     log_admin_action,
     register_failed_login,
     reset_failed_login,
+    revoke_all_admin_sessions,
     revoke_current_admin_session,
+    validate_admin_password,
     verify_mfa_challenge,
 )
 
+
+RESOURCE_STATUSES = ('draft', 'published', 'suspended')
+RESOURCE_STATUS_LABELS = {
+    'draft': 'Draft',
+    'published': 'Published',
+    'suspended': 'Suspended',
+}
+STATUS_MANAGED_RESOURCE_TYPES = ('text', 'audio', 'slide')
+COMMENT_STATUSES = ('approved', 'unapproved', 'blocked')
+COMMENT_STATUS_LABELS = {
+    'approved': 'Approved',
+    'unapproved': 'Unapproved',
+    'blocked': 'Blocked',
+}
+
 # Initialize Cleaners
 content_cleaner = Cleaner(
-    tags=['b', 'i', 'u', 'em', 'strong', 'p', 'ul', 'ol', 'li', 'br', 'span', 'div'],
-    attributes={},
+    tags=[
+        'a', 'b', 'blockquote', 'br', 'code', 'div', 'em', 'h1', 'h2', 'h3',
+        'hr', 'i', 'img', 'li', 'ol', 'p', 'pre', 's', 'span', 'strong', 'u', 'ul'
+    ],
+    attributes={
+        'a': ['href', 'title', 'target', 'rel'],
+        'img': ['src', 'alt', 'title'],
+        'p': ['style'],
+        'h1': ['style'],
+        'h2': ['style'],
+        'h3': ['style'],
+        'blockquote': ['style'],
+        'span': ['style'],
+    },
+    protocols=['http', 'https', 'mailto'],
+    css_sanitizer=CSSSanitizer(allowed_css_properties=['text-align']),
     strip=True
 )
 
@@ -94,6 +139,25 @@ def get_selected_option(option_value):
 @app.template_global()
 def get_selected_status(option_value, default_value='all'):
     return 'selected' if request.args.get('subscriberStatus', default_value) == option_value else ''
+
+
+def get_json_payload():
+    return request.get_json(silent=True) or {}
+
+
+def get_resource_status_from_form(default='published'):
+    status = request.form.get('resource_status', default).strip().lower()
+    if status not in RESOURCE_STATUSES:
+        return None
+    return status
+
+
+def get_comment_status(comment):
+    if getattr(comment, 'comment_is_blocked', False):
+        return 'blocked'
+    if comment.comment_is_approve:
+        return 'approved'
+    return 'unapproved'
 
 
 def format_event_date(event_date):
@@ -198,10 +262,180 @@ def admin_mfa():
     return render_template('admin/mfa.html')
 
 
+@app.route('/admin/login/mfa/resend/', methods=['POST'])
+@limiter.limit("3 per 10 minutes")
+def admin_mfa_resend():
+    pending_admin_id = session.get('pending_admin_id')
+    challenge_id = session.get('pending_mfa_challenge_id')
+    if not pending_admin_id or not challenge_id:
+        return jsonify({
+            'success': False,
+            'message': 'Please log in again before requesting a new code.',
+            'redirect_url': url_for('admin_login')
+        }), 401
+
+    admin = Admin.query.get(pending_admin_id)
+    challenge = AdminMfaChallenge.query.filter_by(
+        challenge_id=challenge_id,
+        admin_id=pending_admin_id
+    ).first()
+
+    if not admin or not challenge:
+        session.pop('pending_admin_id', None)
+        session.pop('pending_mfa_challenge_id', None)
+        return jsonify({
+            'success': False,
+            'message': 'Please log in again before requesting a new code.',
+            'redirect_url': url_for('admin_login')
+        }), 401
+
+    if is_admin_locked(admin):
+        log_admin_action('admin_mfa_resend_blocked_locked', admin.admin_id, 'MFA resend attempted while account is locked.')
+        return jsonify({'success': False, 'message': 'Login temporarily unavailable.'}), 401
+
+    try:
+        new_challenge = create_mfa_challenge(admin)
+    except Exception:
+        current_app.logger.exception('Unable to resend admin MFA code.')
+        log_admin_action('admin_mfa_resend_failed', admin.admin_id, 'Could not resend MFA code.')
+        return jsonify({'success': False, 'message': 'Could not resend verification code. Please try again.'}), 500
+
+    session['pending_mfa_challenge_id'] = new_challenge.challenge_id
+    log_admin_action('admin_mfa_resent', admin.admin_id, 'MFA challenge resent.')
+    return jsonify({'success': True, 'message': 'A new verification code has been sent.'}), 200
+
+
+@app.route('/admin/password/forgot/', methods=['GET', 'POST'])
+@limiter.limit("5 per hour", methods=['POST'])
+def admin_forgot_password():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        generic_message = 'If the admin account exists, a password reset link has been sent.'
+
+        if username:
+            admin = Admin.query.filter_by(admin_username=username).first()
+            if admin:
+                try:
+                    create_password_reset_token(admin)
+                    log_admin_action('admin_password_reset_requested', admin.admin_id, 'Password reset link sent.')
+                except Exception:
+                    current_app.logger.exception('Unable to send admin password reset link.')
+                    log_admin_action('admin_password_reset_send_failed', admin.admin_id, 'Could not send password reset link.')
+            else:
+                log_admin_action('admin_password_reset_requested_unknown', None, f'Unknown username: {username}')
+
+        return jsonify({
+            'success': True,
+            'message': generic_message,
+            'redirect_url': url_for('admin_login')
+        }), 200
+
+    if current_admin_id_from_session():
+        return redirect(url_for('admin_dashboard'))
+
+    return render_template('admin/forgot_password.html')
+
+
+@app.route('/admin/password/reset/<token>/', methods=['GET', 'POST'])
+@limiter.limit("10 per 15 minutes")
+def admin_reset_password(token):
+    reset_record, message = get_password_reset_record(token)
+    if not reset_record:
+        if request.method == 'POST':
+            return jsonify({
+                'success': False,
+                'message': message,
+                'redirect_url': url_for('admin_forgot_password')
+            }), 400
+
+        flash(message, 'warning')
+        return redirect(url_for('admin_forgot_password'))
+
+    admin = Admin.query.get(reset_record.admin_id)
+    if not admin:
+        reset_record.consumed_at = datetime.utcnow()
+        db.session.commit()
+
+        if request.method == 'POST':
+            return jsonify({
+                'success': False,
+                'message': 'Password reset link is invalid.',
+                'redirect_url': url_for('admin_forgot_password')
+            }), 400
+
+        flash('Password reset link is invalid.', 'warning')
+        return redirect(url_for('admin_forgot_password'))
+
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if password != confirm_password:
+            return jsonify({'success': False, 'message': 'The two passwords must match.'}), 400
+
+        ok, password_message = validate_admin_password(password)
+        if not ok:
+            return jsonify({'success': False, 'message': password_message}), 400
+
+        if check_password_hash(admin.admin_password, password):
+            return jsonify({'success': False, 'message': 'New password must be different from the current password.'}), 400
+
+        admin.admin_password = generate_password_hash(password)
+        reset_record.consumed_at = datetime.utcnow()
+        reset_failed_login(admin)
+        log_admin_action('admin_password_reset_completed', admin.admin_id, 'Password reset completed.')
+        revoke_all_admin_sessions(admin.admin_id)
+
+        return jsonify({
+            'success': True,
+            'message': 'Password has been reset. Please log in again.',
+            'redirect_url': url_for('admin_login')
+        }), 200
+
+    return render_template('admin/reset_password.html', token=token)
+
+
+@app.route('/admin/password/change/', methods=['GET', 'POST'])
+@admin_required
+@limiter.limit("5 per hour", methods=['POST'])
+def admin_change_password(admin_online):
+    if request.method == 'POST':
+        current_password = request.form.get('current_password', '')
+        password = request.form.get('password', '')
+        confirm_password = request.form.get('confirm_password', '')
+
+        if not check_password_hash(admin_online.admin_password, current_password):
+            log_admin_action('admin_password_change_failed', admin_online.admin_id, 'Invalid current password.')
+            return jsonify({'success': False, 'message': 'Current password is incorrect.'}), 401
+
+        if password != confirm_password:
+            return jsonify({'success': False, 'message': 'The two passwords must match.'}), 400
+
+        ok, password_message = validate_admin_password(password)
+        if not ok:
+            return jsonify({'success': False, 'message': password_message}), 400
+
+        if check_password_hash(admin_online.admin_password, password):
+            return jsonify({'success': False, 'message': 'New password must be different from the current password.'}), 400
+
+        admin_online.admin_password = generate_password_hash(password)
+        db.session.commit()
+        log_admin_action('admin_password_changed', admin_online.admin_id, 'Password changed by logged-in admin.')
+        revoke_all_admin_sessions(admin_online.admin_id)
+
+        return jsonify({
+            'success': True,
+            'message': 'Password changed. Please log in again.',
+            'redirect_url': url_for('admin_login')
+        }), 200
+
+    return render_template('admin/change_password.html', admin_online=admin_online)
+
+
 
 @app.route('/admin/logout/', methods=['POST'])
 @admin_required
-def log_out():
+def log_out(admin_online):
     admin_id = current_admin_id_from_session()
     if admin_id != None:
         revoke_current_admin_session()
@@ -282,8 +516,9 @@ def admin_audit_logs(admin_online):
 # this function works for deleteing but audio, reading, and slide resources
 @app.route('/admin/delete-resource/', methods=['POST'])
 @admin_required
-def delete_resource():
-    id = request.json.get('id')  # Expecting JSON data
+def delete_resource(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
 
     if not id:
         return jsonify({'status': 'error', 'message': 'Resource ID is required.'}), 400
@@ -298,11 +533,23 @@ def delete_resource():
         db.session.add(resource)
         db.session.commit()
 
-        resource_type = "Reading" if resource.resource_type == 'text' else "Audio"
+        resource_type_labels = {
+            'text': 'Message',
+            'audio': 'Audio',
+            'slide': 'Slide',
+            'blog': 'Blog'
+        }
+        resource_type = resource_type_labels.get(resource.resource_type, 'Resource')
+        log_admin_action(
+            'resource_deleted',
+            admin_online.admin_id,
+            f'{resource_type} resource #{resource.resource_id} archived.'
+        )
         return jsonify({'status': 'success', 'message': f'{resource_type} resource deleted successfully.'}), 200
     
     except Exception as e:
         db.session.rollback()
+        current_app.logger.exception('Unable to delete resource %s', id)
         return jsonify({'status': 'error', 'message': 'Something went wrong, Please try again later'}), 500
 
 
@@ -313,6 +560,7 @@ def admin_message_resources(admin_online):
     sort_order = request.args.get('sortOrder', 'desc')
     month = request.args.get('month', 'all')
     title_query = request.args.get('title', '').strip()
+    status = request.args.get('status', 'all').strip().lower()
     page = request.args.get('page', 1, type=int)  # Get the page number, default is 1
     per_page = 25
 
@@ -323,6 +571,11 @@ def admin_message_resources(admin_online):
         Resource.resource_type == 'text',
         Resource.resource_is_deleted == False
     ).group_by(Resource.resource_id)
+
+    if status != 'all':
+        if status not in RESOURCE_STATUSES:
+            return "Invalid status provided", 400
+        query = query.filter(Resource.resource_status == status)
     
     # Filter by month
     if month != 'all':
@@ -361,6 +614,7 @@ def admin_audio_resources(admin_online):
     sort_order = request.args.get('sortOrder', 'desc').lower()
     month = request.args.get('month', 'all')
     title_query = request.args.get('title', '').strip()
+    status = request.args.get('status', 'all').strip().lower()
     page = request.args.get('page', 1, type=int)  # Get the page number, default is 1
     per_page = 25
 
@@ -372,6 +626,11 @@ def admin_audio_resources(admin_online):
         Resource.resource_type == 'audio',
         Resource.resource_is_deleted == False
     ).group_by(Resource.resource_id)
+
+    if status != 'all':
+        if status not in RESOURCE_STATUSES:
+            return "Invalid status provided", 400
+        query = query.filter(Resource.resource_status == status)
 
     # Filter by month
     if month != 'all':
@@ -408,15 +667,47 @@ def admin_audio_resources(admin_online):
 @app.route('/admin/slide-resources/')
 @admin_required 
 def admin_slide_resources(admin_online):
-    slide_resources = db.session.query(
+    sort_order = request.args.get('sortOrder', 'desc').lower()
+    month = request.args.get('month', 'all')
+    title_query = request.args.get('title', '').strip()
+    status = request.args.get('status', 'all').strip().lower()
+    page = request.args.get('page', 1, type=int)
+    per_page = 25
+
+    query = db.session.query(
     Resource, Slide,
     func.coalesce(func.count(Comment.comment_id), 0).label('comment_count')
     ).outerjoin(Comment, Resource.resource_id == Comment.resource_id).join(Slide).filter(
         Resource.resource_type == 'slide',
         Resource.resource_is_deleted == False
-    ).group_by(Resource.resource_id)
+    ).group_by(Resource.resource_id, Slide.slide_id)
 
-    return render_template('admin/admin_slide_resources.html', slide_resources=slide_resources,admin_online=admin_online)
+    if status != 'all':
+        if status not in RESOURCE_STATUSES:
+            return "Invalid status provided", 400
+        query = query.filter(Resource.resource_status == status)
+
+    if month != 'all':
+        try:
+            month_int = int(month)
+            if 1 <= month_int <= 12:
+                query = query.filter(extract('month', Resource.resource_updated_date) == month_int)
+            else:
+                raise ValueError("Invalid month value")
+        except ValueError:
+            return "Invalid month provided", 400
+
+    if title_query:
+        query = query.filter(Resource.resource_title.ilike(f'%{title_query}%'))
+
+    if sort_order == 'asc':
+        query = query.order_by(Resource.resource_updated_date.asc())
+    else:
+        query = query.order_by(Resource.resource_updated_date.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    base_url = url_for('admin_slide_resources')
+    return render_template('admin/admin_slide_resources.html', slide_resources=pagination.items, pagination=pagination, base_url=base_url, admin_online=admin_online)
 
 
 
@@ -427,12 +718,16 @@ def add_message_resource(admin_online):
         try:
             title = request.form.get('title', '').strip()
             content = request.form.get('content', '').strip()
+            content_json = normalize_tiptap_json(request.form.get('content_json', ''))
+            resource_status = get_resource_status_from_form()
 
             # Validate title and content
             if not title:
                 return jsonify({'success': False, 'message': 'Title cannot be empty.'}), 400
             if not content:
                 return jsonify({'success': False, 'message': 'Content cannot be empty.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
             
             # Sanitize inputs
             sanitized_title = title_cleaner.clean(title)
@@ -442,7 +737,10 @@ def add_message_resource(admin_online):
                 # Update resource
                 resource_title = str(sanitized_title), # Store sanitized title
                 resource_body = str(sanitized_content),  # Store sanitized HTML content
-                resource_type = 'text'
+                resource_type = 'text',
+                resource_status=resource_status,
+                resource_published_date=datetime.utcnow() if resource_status == 'published' else None,
+                resource_content_json=content_json
                 )
             # Update resource
             db.session.add(new_resource)
@@ -466,12 +764,15 @@ def add_audio_resource(admin_online):
             # Retrieve data from the form
             title = request.form.get('title', '').strip()  # Audio title
             audio_url = request.form.get('audio_url', '').strip()  # Audio URL
+            resource_status = get_resource_status_from_form()
 
             # Validate form inputs
             if not title:
                 return jsonify({'success': False, 'message': 'Title cannot be empty.'}), 400
             if not audio_url or 'youtube.com/watch' not in audio_url:
                return jsonify({'success': False, 'message': 'Invalid or empty YouTube URL.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
 
             audio_id = audio_url.split('v=')[1].split('&')[0] if 'v=' in audio_url else None
             
@@ -484,7 +785,9 @@ def add_audio_resource(admin_online):
             new_resource = Resource(
                 resource_title = str(sanitized_title), # Store sanitized title
                 resource_body = audio_id,
-                resource_type = 'audio'
+                resource_type = 'audio',
+                resource_status=resource_status,
+                resource_published_date=datetime.utcnow() if resource_status == 'published' else None
             )
             db.session.add(new_resource)
             db.session.commit()
@@ -509,6 +812,8 @@ def add_slide_resource(admin_online):
             title = request.form.get('title', '').strip()
             image= request.files.get('image')
             content = request.form.get('content', '').strip()
+            content_json = normalize_tiptap_json(request.form.get('content_json', ''))
+            resource_status = get_resource_status_from_form()
 
             # Validate title and content
             if not title:
@@ -517,6 +822,8 @@ def add_slide_resource(admin_online):
                 return jsonify({'success': False, 'message': 'Content cannot be empty.'}), 400
             if not image:
                 return jsonify({'success': False, 'message': 'Image is required.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
             
             #Validate and save the image
             original_image = secure_filename(image.filename)
@@ -537,7 +844,10 @@ def add_slide_resource(admin_online):
             new_resource = Resource(
                 resource_title = str(sanitized_title), # Store sanitized title
                 resource_body = str(sanitized_content),  # Store sanitized HTML content
-                resource_type = 'slide'
+                resource_type = 'slide',
+                resource_status=resource_status,
+                resource_published_date=datetime.utcnow() if resource_status == 'published' else None,
+                resource_content_json=content_json
                 )
             # Update slide
             db.session.add(new_resource)
@@ -554,7 +864,7 @@ def add_slide_resource(admin_online):
         
         except Exception as e:
             db.session.rollback()
-            print(e)
+            current_app.logger.exception('Failed to add slide resource.')
             return jsonify({'success': False, 'message': 'something went wrong, Please try again later.'}),500
        
     return render_template('admin/add_slide_resource.html',admin_online=admin_online)
@@ -583,12 +893,16 @@ def edit_message_resource(id, admin_online):
             
             title = request.form.get('title', '').strip()
             content = request.form.get('content', '').strip()
+            content_json = normalize_tiptap_json(request.form.get('content_json', ''))
+            resource_status = get_resource_status_from_form(resource.resource_status or 'published')
 
             # Validate title and content
             if not title:
                 return jsonify({'success': False, 'message': 'Title cannot be empty.'}), 400
             if not content:
                 return jsonify({'success': False, 'message': 'Content cannot be empty.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
             
             # Sanitize inputs
             sanitized_title = title_cleaner.clean(title)
@@ -597,6 +911,10 @@ def edit_message_resource(id, admin_online):
             # Update resource
             resource.resource_title = str(sanitized_title) # Store sanitized title
             resource.resource_body = str(sanitized_content)  # Store sanitized HTML content
+            resource.resource_content_json = content_json
+            resource.resource_status = resource_status
+            if resource_status == 'published' and not resource.resource_published_date:
+                resource.resource_published_date = datetime.utcnow()
 
             db.session.commit()
             return jsonify({'success': True, 'redirect_url': url_for('admin_message_resources')}),200
@@ -631,12 +949,15 @@ def edit_audio_resource(id, admin_online):
             # Retrieve data from the form
             title = request.form.get('title', '').strip()  # Audio title
             audio_url = request.form.get('audio_url', '').strip()  # Audio URL
+            resource_status = get_resource_status_from_form(resource.resource_status or 'published')
 
             # Validate form inputs
             if not title:
                 return jsonify({'success': False, 'message': 'Title cannot be empty.'}), 400
             if not audio_url or 'youtube.com/watch' not in audio_url:
                return jsonify({'success': False, 'message': 'Invalid or empty YouTube URL.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
 
             audio_id = audio_url.split('v=')[1].split('&')[0] if 'v=' in audio_url else None
 
@@ -647,6 +968,9 @@ def edit_audio_resource(id, admin_online):
             # Update resource
             resource.resource_title = str(sanitized_title) 
             resource.resource_body = audio_id  
+            resource.resource_status = resource_status
+            if resource_status == 'published' and not resource.resource_published_date:
+                resource.resource_published_date = datetime.utcnow()
 
             db.session.commit()
             return jsonify({'success': True, 'redirect_url': url_for('admin_audio_resources')}),200
@@ -679,12 +1003,16 @@ def edit_slide_resource(id, admin_online):
         try:
             title = request.form.get('title', '').strip()
             content = request.form.get('content', '').strip()
+            content_json = normalize_tiptap_json(request.form.get('content_json', ''))
+            resource_status = get_resource_status_from_form(resource.resource_status or 'published')
 
             # Validate title and content
             if not title:
                 return jsonify({'success': False, 'message': 'Title cannot be empty.'}), 400
             if not content:
                 return jsonify({'success': False, 'message': 'Content cannot be empty.'}), 400
+            if not resource_status:
+                return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
             
             # Sanitize inputs
             sanitized_title = title_cleaner.clean(title)
@@ -692,6 +1020,10 @@ def edit_slide_resource(id, admin_online):
 
             resource.resource_title = str(sanitized_title) # Store sanitized title
             resource.resource_body = str(sanitized_content)  # Store sanitized HTML content
+            resource.resource_content_json = content_json
+            resource.resource_status = resource_status
+            if resource_status == 'published' and not resource.resource_published_date:
+                resource.resource_published_date = datetime.utcnow()
 
             # Update slide
             db.session.commit() 
@@ -704,6 +1036,409 @@ def edit_slide_resource(id, admin_online):
        
 
     return render_template('admin/edit_slide_resource.html', resource=resource, admin_online=admin_online)
+
+
+@app.route('/admin/resource-preview/<int:id>/')
+@admin_required
+def admin_resource_preview(id, admin_online):
+    resource = Resource.query.filter(
+        Resource.resource_id == id,
+        Resource.resource_type.in_(STATUS_MANAGED_RESOURCE_TYPES),
+        Resource.resource_is_deleted == False
+    ).first_or_404()
+
+    comments = db.session.query(Comment).filter(
+        Comment.resource_id == resource.resource_id,
+        Comment.comment_is_approve == True,
+        Comment.comment_is_blocked == False
+    ).order_by(Comment.comment_date.desc()).limit(20).all()
+    for comment in comments:
+        comment.formatted_date = comment.comment_date.strftime('%d-%b-%Y')
+
+    template = 'user/dynamic_audios.html' if resource.resource_type == 'audio' else 'user/dynamic_messages.html'
+    return render_template(template, resource=resource, user_token=None, comments=comments, admin_online=admin_online)
+
+
+@app.route('/admin/update-resource-status/', methods=['POST'])
+@admin_required
+def update_resource_status(admin_online):
+    data = get_json_payload()
+    resource_id = data.get('id')
+    status = str(data.get('status', '')).strip().lower()
+
+    if not resource_id:
+        return jsonify({'success': False, 'message': 'Resource ID is required.'}), 400
+    if status not in RESOURCE_STATUSES:
+        return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
+
+    resource = Resource.query.filter(
+        Resource.resource_id == resource_id,
+        Resource.resource_type.in_(STATUS_MANAGED_RESOURCE_TYPES),
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        return jsonify({'success': False, 'message': 'Resource not found.'}), 404
+
+    try:
+        resource.resource_status = status
+        if status == 'published' and not resource.resource_published_date:
+            resource.resource_published_date = datetime.utcnow()
+        db.session.commit()
+        log_admin_action(
+            'resource_status_updated',
+            admin_online.admin_id,
+            f'{resource.resource_type} resource #{resource.resource_id} moved to {status}.'
+        )
+        return jsonify({'success': True, 'message': f'Resource moved to {RESOURCE_STATUS_LABELS[status]}.'}), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Unable to update resource status for resource %s', resource_id)
+        return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
+
+
+def _blog_upload_folder():
+    return os.path.join(current_app.root_path, 'static', 'uploads', 'blogs')
+
+
+def _blog_featured_image_url(resource):
+    if not resource or not resource.resource_featured_image:
+        return ''
+    return url_for('static', filename=f'uploads/blogs/{resource.resource_featured_image}')
+
+
+def _apply_blog_form(resource, requested_status):
+    was_published = resource.resource_status == 'published'
+    title = title_cleaner.clean(request.form.get('title', '').strip())
+    content = request.form.get('content', '').strip()
+    content_json = normalize_tiptap_json(request.form.get('content_json', ''))
+    category = title_cleaner.clean(request.form.get('category', '').strip())
+    remove_featured_image = request.form.get('remove_featured_image') == '1'
+
+    if not title and requested_status == 'draft':
+        title = 'Untitled draft'
+    if not title:
+        return 'Title is required.'
+    if requested_status == 'published' and not sanitize_blog_html(content):
+        return 'Content is required before publishing.'
+    if requested_status not in BLOG_STATUSES:
+        return 'Invalid blog status.'
+
+    upload_folder = _blog_upload_folder()
+    featured_image = request.files.get('featured_image')
+    if featured_image and featured_image.filename:
+        try:
+            new_image = save_blog_image(featured_image, upload_folder)
+        except ValueError as exc:
+            return str(exc)
+        delete_blog_image(resource.resource_featured_image, upload_folder)
+        resource.resource_featured_image = new_image
+    elif remove_featured_image:
+        delete_blog_image(resource.resource_featured_image, upload_folder)
+        resource.resource_featured_image = None
+
+    resource.resource_title = str(title)
+    if not was_published:
+        resource.resource_slug = unique_blog_slug(title, None, resource.resource_id)
+    resource.resource_body = sanitize_blog_html(content)
+    resource.resource_content_json = content_json
+    resource.resource_status = requested_status
+    resource.resource_category = str(category)[:100] if category else None
+
+    if requested_status == 'published':
+        resource.resource_published_date = resource.resource_published_date or datetime.utcnow()
+
+    return None
+
+
+@app.route('/admin/blogs/')
+@admin_required
+def admin_blog_resources(admin_online):
+    sort_order = request.args.get('sortOrder', 'desc').lower()
+    month = request.args.get('month', 'all')
+    title_query = request.args.get('title', '').strip()
+    status = request.args.get('status', 'all').lower()
+    page = request.args.get('page', 1, type=int)
+    per_page = 25
+
+    query = db.session.query(
+        Resource,
+        func.coalesce(func.count(Comment.comment_id), 0).label('comment_count')
+    ).outerjoin(Comment, Resource.resource_id == Comment.resource_id).filter(
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).group_by(Resource.resource_id)
+
+    if status != 'all':
+        if status not in BLOG_STATUSES:
+            return "Invalid status provided", 400
+        query = query.filter(Resource.resource_status == status)
+
+    if month != 'all':
+        try:
+            month_int = int(month)
+            if 1 <= month_int <= 12:
+                query = query.filter(extract('month', Resource.resource_updated_date) == month_int)
+            else:
+                raise ValueError("Invalid month value")
+        except ValueError:
+            return "Invalid month provided", 400
+
+    if title_query:
+        query = query.filter(Resource.resource_title.ilike(f'%{title_query}%'))
+
+    if sort_order == 'asc':
+        query = query.order_by(Resource.resource_updated_date.asc())
+    else:
+        query = query.order_by(Resource.resource_updated_date.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return render_template(
+        'admin/admin_blog_resources.html',
+        blog_resources=pagination.items,
+        pagination=pagination,
+        base_url=url_for('admin_blog_resources'),
+        admin_online=admin_online
+    )
+
+
+@app.route('/admin/blogs/new/', methods=['GET', 'POST'])
+@admin_required
+def add_blog_resource(admin_online):
+    if request.method == 'POST':
+        action = request.form.get('action', 'draft')
+        requested_status = 'published' if action == 'publish' else 'draft'
+        resource = Resource(resource_title='Untitled draft', resource_body='', resource_type='blog')
+
+        try:
+            error = _apply_blog_form(resource, requested_status)
+            if error:
+                return jsonify({'success': False, 'message': error}), 400
+
+            db.session.add(resource)
+            db.session.commit()
+            log_admin_action('blog_created', admin_online.admin_id, f'Blog #{resource.resource_id} saved as {resource.resource_status}.')
+            return jsonify({
+                'success': True,
+                'message': 'Blog post saved successfully.',
+                'redirect_url': url_for('edit_blog_resource', id=resource.resource_id),
+                'public_url': url_for('blog_detail', slug=resource.resource_slug, _external=True) if resource.resource_status == 'published' else None
+            }), 200
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': str(exc)}), 400
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception('Unable to create blog resource.')
+            return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
+
+    return render_template(
+        'admin/blog_editor.html',
+        resource=None,
+        admin_online=admin_online,
+        editor_action=url_for('add_blog_resource'),
+        preview_url=None,
+        featured_image_url='',
+    )
+
+
+@app.route('/admin/blogs/edit/<int:id>/', methods=['GET', 'POST'])
+@admin_required
+def edit_blog_resource(id, admin_online):
+    resource = Resource.query.filter(
+        Resource.resource_id == id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        flash('Blog post not found.', 'error')
+        return redirect(url_for('admin_blog_resources'))
+
+    if request.method == 'POST':
+        action = request.form.get('action', resource.resource_status)
+        requested_status = 'published' if action == 'publish' else 'draft' if action == 'unpublish' else 'draft'
+        if action == 'keep':
+            requested_status = resource.resource_status
+
+        try:
+            error = _apply_blog_form(resource, requested_status)
+            if error:
+                return jsonify({'success': False, 'message': error}), 400
+
+            db.session.commit()
+            log_admin_action('blog_updated', admin_online.admin_id, f'Blog #{resource.resource_id} saved as {resource.resource_status}.')
+            return jsonify({
+                'success': True,
+                'message': 'Blog post updated successfully.',
+                'redirect_url': url_for('edit_blog_resource', id=resource.resource_id),
+                'preview_url': url_for('admin_blog_preview', id=resource.resource_id),
+                'public_url': url_for('blog_detail', slug=resource.resource_slug, _external=True) if resource.resource_status == 'published' else None
+            }), 200
+        except ValueError as exc:
+            db.session.rollback()
+            return jsonify({'success': False, 'message': str(exc)}), 400
+        except Exception:
+            db.session.rollback()
+            current_app.logger.exception('Unable to update blog resource %s', id)
+            return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
+
+    return render_template(
+        'admin/blog_editor.html',
+        resource=resource,
+        admin_online=admin_online,
+        editor_action=url_for('edit_blog_resource', id=resource.resource_id),
+        preview_url=url_for('admin_blog_preview', id=resource.resource_id),
+        featured_image_url=_blog_featured_image_url(resource),
+    )
+
+
+@app.route('/admin/blogs/preview/<int:id>/')
+@admin_required
+def admin_blog_preview(id, admin_online):
+    resource = Resource.query.filter(
+        Resource.resource_id == id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first_or_404()
+    description = blog_text_summary(resource, 300)
+    return render_template(
+        'admin/blog_preview.html',
+        resource=resource,
+        featured_image_url=_blog_featured_image_url(resource),
+        copy_public_url=url_for('blog_detail', slug=resource.resource_slug, _external=True) if resource.resource_status == 'published' and resource.resource_slug else None,
+        copy_content_text=blog_plain_text(resource),
+        page_title=f'Preview: {resource.resource_title}',
+        meta_description=description,
+        canonical_url=url_for('admin_blog_preview', id=resource.resource_id, _external=True),
+        og_title=resource.resource_title,
+        og_description=description,
+        og_image_url=url_for('static', filename=f'uploads/blogs/{resource.resource_featured_image}', _external=True) if resource.resource_featured_image else None,
+    )
+
+
+@app.route('/admin/blogs/copy-data/<int:id>/')
+@admin_required
+def admin_blog_copy_data(id, admin_online):
+    resource = Resource.query.filter(
+        Resource.resource_id == id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        return jsonify({'success': False, 'message': 'Blog post not found.'}), 404
+
+    public_url = None
+    if resource.resource_status == 'published' and resource.resource_slug:
+        public_url = url_for('blog_detail', slug=resource.resource_slug, _external=True)
+
+    return jsonify({
+        'success': True,
+        'public_url': public_url,
+        'content': blog_plain_text(resource),
+    }), 200
+
+
+@app.route('/admin/blogs/delete/', methods=['POST'])
+@admin_required
+def delete_blog_resource(admin_online):
+    data = get_json_payload()
+    resource_id = data.get('id') or request.form.get('id')
+    resource = Resource.query.filter(
+        Resource.resource_id == resource_id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        return jsonify({'status': 'error', 'message': 'Blog post not found.'}), 404
+
+    try:
+        resource.resource_is_deleted = True
+        db.session.commit()
+        log_admin_action('blog_deleted', admin_online.admin_id, f'Blog #{resource.resource_id} archived.')
+        return jsonify({'status': 'success', 'message': 'Blog post deleted successfully.'}), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Unable to delete blog resource %s', resource_id)
+        return jsonify({'status': 'error', 'message': 'Something went wrong. Please try again later.'}), 500
+
+
+@app.route('/admin/blogs/publish/', methods=['POST'])
+@admin_required
+def publish_blog_resource(admin_online):
+    data = get_json_payload()
+    resource_id = data.get('id')
+    resource = Resource.query.filter(
+        Resource.resource_id == resource_id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        return jsonify({'success': False, 'message': 'Blog post not found.'}), 404
+    if not resource.resource_body:
+        return jsonify({'success': False, 'message': 'Content is required before publishing.'}), 400
+
+    try:
+        if not resource.resource_slug:
+            resource.resource_slug = unique_blog_slug(resource.resource_title, None, resource.resource_id)
+        resource.resource_status = 'published'
+        resource.resource_published_date = resource.resource_published_date or datetime.utcnow()
+        db.session.commit()
+        log_admin_action('blog_published', admin_online.admin_id, f'Blog #{resource.resource_id} published.')
+        return jsonify({
+            'success': True,
+            'message': 'Blog post published successfully.',
+            'public_url': url_for('blog_detail', slug=resource.resource_slug, _external=True)
+        }), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Unable to publish blog resource %s', resource_id)
+        return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
+
+
+@app.route('/admin/blogs/unpublish/', methods=['POST'])
+@admin_required
+def unpublish_blog_resource(admin_online):
+    data = get_json_payload()
+    resource_id = data.get('id')
+    resource = Resource.query.filter(
+        Resource.resource_id == resource_id,
+        Resource.resource_type == 'blog',
+        Resource.resource_is_deleted == False
+    ).first()
+
+    if not resource:
+        return jsonify({'success': False, 'message': 'Blog post not found.'}), 404
+
+    try:
+        resource.resource_status = 'draft'
+        db.session.commit()
+        log_admin_action('blog_unpublished', admin_online.admin_id, f'Blog #{resource.resource_id} moved to draft.')
+        return jsonify({'success': True, 'message': 'Blog post moved to draft successfully.'}), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Unable to unpublish blog resource %s', resource_id)
+        return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
+
+
+@app.route('/admin/blogs/upload-image/', methods=['POST'])
+@admin_required
+def admin_blog_editor_image_upload(admin_online):
+    try:
+        filename = save_blog_image(request.files.get('image'), _blog_upload_folder())
+        if not filename:
+            return jsonify({'success': False, 'message': 'Image is required.'}), 400
+        return jsonify({
+            'success': True,
+            'url': url_for('static', filename=f'uploads/blogs/{filename}')
+        }), 200
+    except ValueError as exc:
+        return jsonify({'success': False, 'message': str(exc)}), 400
+    except Exception:
+        return jsonify({'success': False, 'message': 'Image upload failed. Please try again.'}), 500
 
 
 
@@ -751,8 +1486,9 @@ def admin_prayer_requests(admin_online):
 
 @app.route('/admin/delete-prayer-request/', methods=['POST'])
 @admin_required
-def delete_prayer_request():
-    id = request.json.get('id')  # Expecting JSON data
+def delete_prayer_request(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
 
     if not id:
         return jsonify({'status': 'error', 'message': 'Prayer Request ID is required.'}), 400
@@ -907,7 +1643,7 @@ def edit_event(id, admin_online):
 
         except Exception as e:
             db.session.rollback()
-            print(e)
+            current_app.logger.exception('Failed to edit event %s.', id)
             return jsonify({'success': False, 'message': 'something went wrong, Please try again later.'}), 500
 
     return render_template('admin/edit_event.html', event=event, admin_online=admin_online)
@@ -915,8 +1651,9 @@ def edit_event(id, admin_online):
 
 @app.route('/admin/delete-event/', methods=['POST'])
 @admin_required
-def delete_event():
-    id = request.json.get('id')
+def delete_event(admin_online):
+    data = get_json_payload()
+    id = data.get('id')
 
     if not id:
         return jsonify({'status': 'error', 'message': 'Event ID is required.'}), 400
@@ -927,16 +1664,23 @@ def delete_event():
         return jsonify({'status': 'error', 'message': 'Event not found.'}), 404
 
     try:
+        event_theme = event.event_theme
         upload_folder = os.path.join(current_app.root_path, 'static', 'uploads', 'events')
         delete_event_flyer(event.event_flyer_filename, upload_folder)
 
         db.session.delete(event)
         db.session.commit()
+        log_admin_action(
+            'event_deleted',
+            admin_online.admin_id,
+            f'Event #{id} deleted: {event_theme}.'
+        )
 
         return jsonify({'status': 'success', 'message': 'Event deleted successfully.'}), 200
 
     except Exception as e:
         db.session.rollback()
+        current_app.logger.exception('Unable to delete event %s', id)
         return jsonify({'status': 'error', 'message': 'Something went wrong, Please try again later'}), 500
 
 
@@ -946,11 +1690,22 @@ def admin_comments(admin_online):
 
     sort_order = request.args.get('sortOrder', 'desc').lower()
     month = request.args.get('month', 'all')
+    status = request.args.get('status', 'all').strip().lower()
     page = request.args.get('page', 1, type=int)  # Get the page number, default is 1
     per_page = 25
 
 
     query = db.session.query(Comment, Resource).join(Resource).filter( Resource.resource_is_deleted == False)
+    if status != 'all':
+        if status not in COMMENT_STATUSES:
+            return "Invalid status provided", 400
+        if status == 'approved':
+            query = query.filter(Comment.comment_is_approve == True, Comment.comment_is_blocked == False)
+        elif status == 'unapproved':
+            query = query.filter(Comment.comment_is_approve == False, Comment.comment_is_blocked == False)
+        else:
+            query = query.filter(Comment.comment_is_blocked == True)
+
     # Filter by month
     if month != 'all':
         try:
@@ -975,14 +1730,64 @@ def admin_comments(admin_online):
     comments = pagination.items
     base_url = url_for('admin_comments')
 
-    return render_template('admin/admin_comments.html',comments=comments, pagination=pagination, base_url=base_url, admin_online=admin_online)
+    return render_template(
+        'admin/admin_comments.html',
+        comments=comments,
+        pagination=pagination,
+        base_url=base_url,
+        admin_online=admin_online,
+        get_comment_status=get_comment_status,
+        comment_status_labels=COMMENT_STATUS_LABELS
+    )
+
+
+@app.route('/admin/update-comment-status/', methods=['POST'])
+@admin_required
+def admin_update_comment_status(admin_online):
+    data = get_json_payload()
+    comment_id = data.get('id')
+    status = str(data.get('status', '')).strip().lower()
+
+    if not comment_id:
+        return jsonify({'success': False, 'message': 'Comment ID is required.'}), 400
+    if status not in COMMENT_STATUSES:
+        return jsonify({'success': False, 'message': 'Invalid status selected.'}), 400
+
+    comment = db.session.query(Comment).filter_by(comment_id=comment_id).first()
+    if not comment:
+        return jsonify({'success': False, 'message': 'Comment not found.'}), 404
+
+    old_status = get_comment_status(comment)
+    try:
+        if status == 'approved':
+            comment.comment_is_approve = True
+            comment.comment_is_blocked = False
+        elif status == 'unapproved':
+            comment.comment_is_approve = False
+            comment.comment_is_blocked = False
+        else:
+            comment.comment_is_approve = False
+            comment.comment_is_blocked = True
+
+        db.session.commit()
+        log_admin_action(
+            'comment_status_updated',
+            admin_online.admin_id,
+            f'Comment #{comment.comment_id} moved from {old_status} to {status}.'
+        )
+        return jsonify({'success': True, 'message': f'Comment moved to {COMMENT_STATUS_LABELS[status]}.'}), 200
+    except Exception:
+        db.session.rollback()
+        current_app.logger.exception('Unable to update comment status for comment %s', comment_id)
+        return jsonify({'success': False, 'message': 'Something went wrong. Please try again later.'}), 500
 
 
 
 @app.route('/admin/delete-comment/', methods=['POST'])
 @admin_required
-def admin_delete_comment():
-    id = request.json.get('id')  # Expecting JSON data
+def admin_delete_comment(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
 
     if not id:
         return jsonify({'status': 'error', 'message': 'Comment ID is required.'}), 400
@@ -993,13 +1798,20 @@ def admin_delete_comment():
         return jsonify({'status': 'error', 'message': 'Comment not found.'}), 404
     
     try:
+        resource_id = comment.resource_id
         db.session.delete(comment)
         db.session.commit()
+        log_admin_action(
+            'comment_deleted',
+            admin_online.admin_id,
+            f'Comment #{id} deleted from resource #{resource_id}.'
+        )
 
         return jsonify({'status': 'success', 'message': 'Comment deleted successfully.'}), 200
     
     except Exception as e:
         db.session.rollback()
+        current_app.logger.exception('Unable to delete comment %s', id)
         return jsonify({'status': 'error', 'message': 'Something went wrong, Please try again later'}), 500
 
 
@@ -1069,8 +1881,9 @@ def subscribers_email(admin_online):
 
 @app.route('/admin/delete-subscriber/', methods=['POST'])
 @admin_required
-def delete_subscriber():
-    id = request.json.get('id')  # Expecting JSON data
+def delete_subscriber(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
 
     if not id:
         return jsonify({'status': 'error', 'message': "Subscriber's ID is required."}), 400
@@ -1113,8 +1926,9 @@ def admin_notifications(admin_online):
 
 @app.route('/admin/delete-notification/', methods=['POST'])
 @admin_required
-def delete_notification():
-    id = request.json.get('id')  # Expecting JSON data
+def delete_notification(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
     notification = db.session.query(Notification).filter_by(notification_id=id).first()
     
     if not notification:
@@ -1131,8 +1945,9 @@ def delete_notification():
 
 @app.route('/admin/mark-as-read-notification/', methods=['POST'])
 @admin_required
-def mark_read_notification():
-    id = request.json.get('id')  # Expecting JSON data
+def mark_read_notification(admin_online):
+    data = get_json_payload()
+    id = data.get('id')  # Expecting JSON data
     notification = db.session.query(Notification).filter_by(notification_id=id).first()
     
     if not notification:
@@ -1150,10 +1965,10 @@ def mark_read_notification():
 
 @app.route('/admin/delete-bulk/notifications/', methods=['POST'])
 @admin_required
-def delete_bulk_notifications():
+def delete_bulk_notifications(admin_online):
     try:
         # Parse the JSON payload
-        data = request.get_json()
+        data = get_json_payload()
         notification_ids = data.get('notification_ids', [])
 
         # Validate input
@@ -1167,7 +1982,7 @@ def delete_bulk_notifications():
         return jsonify({'success': True, 'message': 'Notification(s) deleted successfully.'}), 200
 
     except Exception as e:
-        print(f"Error during bulk deletion: {e}")
+        current_app.logger.exception('Error during bulk notification deletion.')
         db.session.rollback()
         return jsonify({'success': False, 'message': 'An error occurred while deleting notifications.'}), 500
 
@@ -1286,6 +2101,8 @@ def admin_update_appointment(admin_online):
     booking_id = data.get('id')
     status = data.get('status')
     notes = data.get('notes')
+    date_value = (data.get('date') or '').strip()
+    start_time_value = (data.get('start_time') or '').strip()
 
     booking = db.session.query(Booking).filter_by(booking_id=booking_id).first()
     if not booking:
@@ -1294,13 +2111,123 @@ def admin_update_appointment(admin_online):
     if status and status not in BOOKING_STATUSES:
         return jsonify({'success': False, 'message': 'Invalid status.'}), 400
 
+    new_date = booking.booking_date
+    new_start = booking.booking_start_time
+    if date_value or start_time_value:
+        if not date_value or not start_time_value:
+            return jsonify({'success': False, 'message': 'Please provide both date and start time to reschedule.'}), 400
+
+        try:
+            new_date = datetime.strptime(date_value, '%Y-%m-%d').date()
+            new_start = datetime.strptime(start_time_value, '%H:%M').time()
+        except ValueError:
+            return jsonify({'success': False, 'message': 'Please select a valid date and time.'}), 400
+
+    new_end = (datetime.combine(new_date, new_start) + timedelta(minutes=SESSION_DURATION_MINUTES)).time()
+    is_reschedule = (
+        new_date != booking.booking_date
+        or new_start != booking.booking_start_time
+    )
+
+    if is_reschedule and booking.booking_status in ('cancelled', 'completed', 'no_show'):
+        return jsonify({'success': False, 'message': 'This appointment can no longer be rescheduled.'}), 400
+
+    if is_reschedule and status == 'cancelled':
+        return jsonify({'success': False, 'message': 'Cancel the appointment without changing the date or time.'}), 400
+
+    if is_reschedule:
+        now_wat = datetime.utcnow() + timedelta(hours=1)
+        if datetime.combine(new_date, new_start) <= now_wat:
+            return jsonify({'success': False, 'message': 'Please choose a future appointment time.'}), 400
+
+        if not is_slot_available(new_date, new_start, exclude_booking_id=booking.booking_id):
+            return jsonify({'success': False, 'message': 'That slot is no longer available.'}), 409
+
     try:
+        old_date = booking.booking_date
+        old_start = booking.booking_start_time
+        old_end = booking.booking_end_time
+
         if status:
+            if status == 'cancelled' and booking.booking_status != 'cancelled':
+                try:
+                    delete_calendar_event(booking.booking_calendar_event_id)
+                    booking.booking_calendar_event_id = None
+                    booking.booking_meet_link = None
+                except Exception:
+                    current_app.logger.exception(
+                        'Failed to delete Google Calendar event while cancelling appointment %s.',
+                        booking.booking_id
+                    )
             booking.booking_status = status
+        if is_reschedule:
+            try:
+                if booking.booking_calendar_event_id:
+                    update_calendar_event(
+                        booking.booking_calendar_event_id,
+                        date_str=new_date.isoformat(),
+                        start_time_str=new_start.strftime('%H:%M'),
+                        end_time_str=new_end.strftime('%H:%M')
+                    )
+                else:
+                    calendar_result = create_calendar_event(
+                        date_str=new_date.isoformat(),
+                        start_time_str=new_start.strftime('%H:%M'),
+                        end_time_str=new_end.strftime('%H:%M'),
+                        client_email=booking.booker.booker_email,
+                        client_name=booking.booker.booker_name,
+                        description=booking.booking_reason or ''
+                    )
+                    booking.booking_calendar_event_id = calendar_result.get('event_id')
+                    booking.booking_meet_link = calendar_result.get('meet_link')
+            except Exception:
+                db.session.rollback()
+                current_app.logger.exception(
+                    'Failed to update Google Calendar event while rescheduling appointment %s.',
+                    booking.booking_id
+                )
+                return jsonify({'success': False, 'message': 'Could not update Google Calendar. Appointment was not rescheduled.'}), 502
+
+            booking.booking_date = new_date
+            booking.booking_start_time = new_start
+            booking.booking_end_time = new_end
+            booking.booking_status = 'rescheduled'
         if notes is not None:
             booking.booking_notes = str(escape(notes))
         db.session.commit()
-        return jsonify({'success': True, 'message': 'Appointment updated.'}), 200
+
+        if is_reschedule:
+            log_admin_action(
+                'admin_appointment_rescheduled',
+                admin_online.admin_id,
+                (
+                    f'Booking {booking.booking_id} moved from '
+                    f'{old_date.isoformat()} {old_start.strftime("%H:%M")}-{old_end.strftime("%H:%M")} '
+                    f'to {booking.booking_date.isoformat()} {booking.booking_start_time.strftime("%H:%M")}-{booking.booking_end_time.strftime("%H:%M")}.'
+                )
+            )
+            try:
+                send_booking_rescheduled_confirmation(
+                    booking,
+                    old_date=old_date,
+                    old_start=old_start,
+                    old_end=old_end
+                )
+            except Exception:
+                current_app.logger.exception(
+                    'Failed to send client reschedule email for appointment %s.',
+                    booking.booking_id
+                )
+            try:
+                send_counselor_notification('rescheduled', booking)
+            except Exception:
+                current_app.logger.exception(
+                    'Failed to send counselor reschedule email for appointment %s.',
+                    booking.booking_id
+                )
+
+        message = 'Appointment rescheduled.' if is_reschedule else 'Appointment updated.'
+        return jsonify({'success': True, 'message': message}), 200
     except Exception:
         db.session.rollback()
         return jsonify({'success': False, 'message': 'Something went wrong. Please try again.'}), 500
@@ -1320,7 +2247,10 @@ def admin_delete_appointment(admin_online):
         try:
             delete_calendar_event(booking.booking_calendar_event_id)
         except Exception:
-            pass
+            current_app.logger.exception(
+                'Failed to delete Google Calendar event while deleting appointment %s.',
+                booking.booking_id
+            )
         db.session.delete(booking)
         db.session.commit()
         return jsonify({'success': True, 'message': 'Appointment deleted.'}), 200
@@ -1358,7 +2288,10 @@ def admin_delete_appointments_range(admin_online):
             try:
                 delete_calendar_event(booking.booking_calendar_event_id)
             except Exception:
-                pass
+                current_app.logger.exception(
+                    'Failed to delete Google Calendar event while deleting appointment %s in range.',
+                    booking.booking_id
+                )
             db.session.delete(booking)
         db.session.commit()
         return jsonify({'success': True, 'message': f'Deleted {len(bookings)} appointment record(s).'}), 200

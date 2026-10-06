@@ -1,7 +1,7 @@
 import os
-import atexit
+import secrets
 from datetime import timedelta
-from flask import Flask
+from flask import Flask, g
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from dotenv import load_dotenv
@@ -74,12 +74,11 @@ def create_app():
     db.init_app(app)
     mail.init_app(app)
 
-    from beulah_pkg.rate_limit_storage import ensure_rate_limit_table
-    ensure_rate_limit_table(app)
+    from beulah_pkg import rate_limit_storage
     limiter.init_app(app)
 
-    from beulah_pkg.admin_security import ensure_security_tables
-    ensure_security_tables(app)
+    from beulah_pkg.cleanup_scheduler import start_cleanup_scheduler
+    start_cleanup_scheduler(app)
 
     return app
 
@@ -88,31 +87,46 @@ app = create_app()
 
 @app.context_processor
 def inject_turnstile_site_key():
-    return {'turnstile_site_key': os.environ.get('TURNSTILE_SITE_KEY', '')}
+    return {
+        'turnstile_site_key': os.environ.get('TURNSTILE_SITE_KEY', ''),
+        'csp_nonce': getattr(g, 'csp_nonce', ''),
+    }
+
+@app.before_request
+def set_csp_nonce():
+    g.csp_nonce = secrets.token_urlsafe(16)
 
 @app.after_request
 def apply_security_headers(response):
+    csp_nonce = getattr(g, 'csp_nonce', '')
     response.headers.setdefault('X-Content-Type-Options', 'nosniff')
     response.headers.setdefault('X-Frame-Options', 'DENY')
     response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
     response.headers.setdefault('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
-    response.headers.setdefault(
-        'Content-Security-Policy',
+    csp = (
         "default-src 'self'; "
-        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.quilljs.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdn.quilljs.com https://cdnjs.cloudflare.com; "
+        f"script-src 'self' 'nonce-{csp_nonce}' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://esm.sh https://challenges.cloudflare.com; "
+        "script-src-attr 'none'; "
+        "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "style-src-elem 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; "
+        "style-src-attr 'unsafe-inline'; "
         "font-src 'self' https://fonts.gstatic.com; "
         "img-src 'self' data: https:; "
         "connect-src 'self' https://challenges.cloudflare.com; "
-        "frame-src https://challenges.cloudflare.com; "
+        "frame-src https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com; "
         "frame-ancestors 'none'; "
+        "object-src 'none'; "
         "base-uri 'self'; "
         "form-action 'self'"
+    )
+    if os.getenv('FLASK_ENV') == 'production':
+        csp = f'{csp}; upgrade-insecure-requests'
+    response.headers.setdefault(
+        'Content-Security-Policy',
+        csp
     )
     if os.getenv('FLASK_ENV') == 'production':
         response.headers.setdefault('Strict-Transport-Security', 'max-age=31536000; includeSubDomains')
     return response
 
 from beulah_pkg import user_route, admin_route, error_route, counselling_route
-
-

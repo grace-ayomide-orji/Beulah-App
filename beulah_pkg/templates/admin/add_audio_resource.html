@@ -24,6 +24,17 @@
                 <label>Audio URL</label>
                 <input type="url" id="audio_url" name="audio_url" placeholder="https://www.youtube.com/watch?v=...">
             </div>
+
+            <div class="select-style-1 mb-4">
+                <label for="resource_status">Status</label>
+                <div class="select-position">
+                    <select class="form-select" id="resource_status" name="resource_status">
+                        <option value="published" selected>Published</option>
+                        <option value="draft">Draft</option>
+                        <option value="suspended">Suspended</option>
+                    </select>
+                </div>
+            </div>
     
           <!-- Submit Button -->
             <div class="links-buttons">
@@ -42,7 +53,7 @@
 {% endblock content %}
 
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}">
 
 window.addEventListener('DOMContentLoaded', function(){
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -65,6 +76,7 @@ window.addEventListener('DOMContentLoaded', function(){
         const formData = new FormData();
         formData.append('title', title);
         formData.append('audio_url', audioUrl);
+        formData.append('resource_status', document.getElementById('resource_status').value);
 
 
         fetch(this.action, {

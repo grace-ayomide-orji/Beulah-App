@@ -46,7 +46,10 @@ MAIL_SERVER = 'smtp.gmail.com'
 MAIL_PORT = 465
 MAIL_USE_TLS = False
 MAIL_USE_SSL = True
-MAIL_DEBUG = os.getenv('FLASK_ENV') != 'production'
+MAIL_DEBUG = (
+    os.getenv('MAIL_DEBUG', 'false').lower() in ('true', '1', 'yes', 'on')
+    and os.getenv('FLASK_ENV') != 'production'
+)
 
 MAIL_USERNAME = os.getenv('MAIL_USERNAME')
 if MAIL_USERNAME is None:
@@ -91,13 +94,29 @@ ADMIN_LOCKOUT_THRESHOLD = int(os.getenv('ADMIN_LOCKOUT_THRESHOLD', '5'))
 
 ADMIN_LOCKOUT_MINUTES = int(os.getenv('ADMIN_LOCKOUT_MINUTES', '30'))
 
+ADMIN_PASSWORD_RESET_MINUTES = int(os.getenv('ADMIN_PASSWORD_RESET_MINUTES', '30'))
 
 
-# Admin cleanup scheduler
+
+# Cleanup scheduler
+ENABLE_CLEANUP_SCHEDULER = (
+    os.getenv('ENABLE_CLEANUP_SCHEDULER', 'true').lower()
+    in ('true', '1', 'yes', 'on')
+)
+
 ENABLE_ADMIN_LOG_CLEANUP_SCHEDULER = (
     os.getenv('ENABLE_ADMIN_LOG_CLEANUP_SCHEDULER', 'true').lower()
     in ('true', '1', 'yes', 'on')
 )
+
+ENABLE_EVENT_CLEANUP_SCHEDULER = (
+    os.getenv('ENABLE_EVENT_CLEANUP_SCHEDULER', 'true').lower()
+    in ('true', '1', 'yes', 'on')
+)
+
+CLEANUP_SCHEDULER_TIMEZONE = os.getenv('CLEANUP_SCHEDULER_TIMEZONE', 'Africa/Lagos')
+ADMIN_LOG_CLEANUP_HOUR = int(os.getenv('ADMIN_LOG_CLEANUP_HOUR', '3'))
+EVENT_CLEANUP_HOUR = int(os.getenv('EVENT_CLEANUP_HOUR', '2'))
 
 
 

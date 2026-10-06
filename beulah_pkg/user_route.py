@@ -7,6 +7,7 @@ from bleach.sanitizer import Cleaner
 from flask_mail import Message
 from markupsafe import escape
 from beulah_pkg import app, mail, limiter
+from beulah_pkg.blog_helpers import blog_image_url, blog_text_summary
 from beulah_pkg.spam_defense import is_honeypot_triggered, verify_turnstile
 from beulah_pkg.models import db, NewsletterSubscriber, Resource, PrayerRequest, Notification, Comment, Event, Slide
 
@@ -65,13 +66,21 @@ def format_event_date(event_date):
 
 @app.route('/')
 def home():
-    slides = db.session.query(Resource, Slide).join(Slide).filter(Resource.resource_type == 'slide', Resource.resource_is_deleted == False).all()
+    slides = db.session.query(Resource, Slide).join(Slide).filter(
+        Resource.resource_type == 'slide',
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).all()
     return render_template('user/index.html', slides=slides)
 
 
 @app.route('/beulah/')
 def user_home():
-    slides = db.session.query(Resource, Slide).join(Slide).filter(Resource.resource_type == 'slide', Resource.resource_is_deleted == False).all()
+    slides = db.session.query(Resource, Slide).join(Slide).filter(
+        Resource.resource_type == 'slide',
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).all()
     return render_template('user/index.html', slides=slides)
 
 
@@ -90,13 +99,16 @@ def search_results():
     reading_query = db.session.query(Resource).filter(
         or_(
             Resource.resource_type == 'text',
-            Resource.resource_type == 'slide'
+            Resource.resource_type == 'slide',
+            Resource.resource_type == 'blog'
         ),
+        Resource.resource_status == 'published',
         Resource.resource_is_deleted == False
     )
 
     audio_query = db.session.query(Resource).filter(
         Resource.resource_type == 'audio',
+        Resource.resource_status == 'published',
         Resource.resource_is_deleted == False
     )
 
@@ -275,7 +287,11 @@ def reading_resources():
     ).group_by(Comment.resource_id).subquery()
 
     # Query for resources and join with the subquery to get the comment count
-    query = db.session.query(Resource, subquery.c.comment_count).outerjoin(subquery, subquery.c.resource_id == Resource.resource_id).filter(Resource.resource_type == 'text', Resource.resource_is_deleted == False).order_by(Resource.resource_date.desc())
+    query = db.session.query(Resource, subquery.c.comment_count).outerjoin(subquery, subquery.c.resource_id == Resource.resource_id).filter(
+        Resource.resource_type == 'text',
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).order_by(Resource.resource_date.desc())
 
   
     # Apply pagination
@@ -302,7 +318,11 @@ def audio_resources():
     ).group_by(Comment.resource_id).subquery()
 
     # Query for resources and join with the subquery to get the comment count
-    query = db.session.query(Resource, subquery.c.comment_count).outerjoin(subquery, subquery.c.resource_id == Resource.resource_id).filter(Resource.resource_type == 'audio', Resource.resource_is_deleted == False).order_by(Resource.resource_date.desc())
+    query = db.session.query(Resource, subquery.c.comment_count).outerjoin(subquery, subquery.c.resource_id == Resource.resource_id).filter(
+        Resource.resource_type == 'audio',
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).order_by(Resource.resource_date.desc())
 
   
     # Apply pagination
@@ -315,6 +335,77 @@ def audio_resources():
     return render_template('user/audio_resource.html', resources=resources ,base_url=base_url, pagination=pagination)
 
 
+@app.route('/blog/')
+def blog_posts():
+    page = request.args.get('page', 1, type=int)
+    per_page = 9
+    subquery = db.session.query(
+        Comment.resource_id,
+        func.count(Comment.comment_id).label('comment_count')
+    ).group_by(Comment.resource_id).subquery()
+
+    query = db.session.query(Resource, subquery.c.comment_count).outerjoin(
+        subquery,
+        subquery.c.resource_id == Resource.resource_id
+    ).filter(
+        Resource.resource_type == 'blog',
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).order_by(Resource.resource_published_date.desc(), Resource.resource_updated_date.desc())
+
+    pagination = query.paginate(page=page, per_page=per_page, error_out=False)
+    return render_template(
+        'user/blog_list.html',
+        blog_resources=pagination.items,
+        pagination=pagination,
+        base_url=url_for('blog_posts'),
+        blog_image_url=blog_image_url,
+        blog_text_summary=blog_text_summary,
+        meta_description='Read articles and spiritual reflections from Beulah Foundation for Christ.',
+        canonical_url=url_for('blog_posts', _external=True),
+        og_title='Blog - Beulah Foundation for Christ',
+        og_description='Read articles and spiritual reflections from Beulah Foundation for Christ.',
+    )
+
+
+@app.route('/blog/<slug>/')
+def blog_detail(slug):
+    resource = Resource.query.filter(
+        Resource.resource_type == 'blog',
+        Resource.resource_slug == slug,
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).first_or_404()
+    user_token = g.get('user_token')
+    comments = db.session.query(Comment).filter(
+        Comment.resource_id == resource.resource_id,
+        Comment.comment_is_approve == True,
+        Comment.comment_is_blocked == False
+    ).order_by(Comment.comment_date.desc()).limit(20).all()
+    for comment in comments:
+        comment.formatted_date = format_date_with_suffix(comment.comment_date)
+
+    image_path = blog_image_url(resource)
+    image_url = url_for('static', filename=image_path, _external=True) if image_path else None
+    description = blog_text_summary(resource, 300)
+
+    return render_template(
+        'user/blog_detail.html',
+        resource=resource,
+        is_preview=False,
+        featured_image_url=url_for('static', filename=image_path) if image_path else '',
+        user_token=user_token,
+        comments=comments,
+        page_title=f'{resource.resource_title} - Beulah Foundation for Christ',
+        meta_description=description,
+        canonical_url=url_for('blog_detail', slug=resource.resource_slug, _external=True),
+        og_title=resource.resource_title,
+        og_description=description,
+        og_image_url=image_url,
+        blog_text_summary=blog_text_summary,
+    )
+
+
 @app.route('/dynamic_messages/<int:id>/')
 def dynamic_messages(id):
     user_token = g.get('user_token')
@@ -324,6 +415,7 @@ def dynamic_messages(id):
     resource = db.session.query(Resource).filter(
         Resource.resource_id == id,
         Resource.resource_type == 'text',
+        Resource.resource_status == 'published',
         Resource.resource_is_deleted == False
     ).first()
 
@@ -333,7 +425,8 @@ def dynamic_messages(id):
     
     comments = db.session.query(Comment).filter(
         Comment.resource_id == resource.resource_id,
-        Comment.comment_is_approve == True
+        Comment.comment_is_approve == True,
+        Comment.comment_is_blocked == False
         ).order_by(Comment.comment_date.desc()).limit(20).all()
     for comment in comments:
         comment.formatted_date = format_date_with_suffix(comment.comment_date)
@@ -346,20 +439,22 @@ def dynamic_audios(id):
     user_token = g.get('user_token')
     if id <= 0:
         flash('Invalid resource ID.', 'error')
-        return redirect(url_for('audios'))
+        return redirect(url_for('audio_resources'))
     resource = db.session.query(Resource).filter(
         Resource.resource_id == id,
         Resource.resource_type == 'audio',
+        Resource.resource_status == 'published',
         Resource.resource_is_deleted == False
     ).first()
 
     if not resource:
         flash('Resource not found', 'error')
-        return redirect(url_for('audios'))
+        return redirect(url_for('audio_resources'))
     
     comments = db.session.query(Comment).filter(
         Comment.resource_id == resource.resource_id,
-        Comment.comment_is_approve == True
+        Comment.comment_is_approve == True,
+        Comment.comment_is_blocked == False
         ).order_by(Comment.comment_date.desc()).limit(20).all()
     for comment in comments:
         comment.formatted_date = format_date_with_suffix(comment.comment_date)
@@ -375,6 +470,7 @@ def dynamic_slides(id):
     resource = db.session.query(Resource).filter(
         Resource.resource_id == id,
         Resource.resource_type == 'slide',
+        Resource.resource_status == 'published',
         Resource.resource_is_deleted == False
     ).first()
 
@@ -384,7 +480,8 @@ def dynamic_slides(id):
     
     comments = db.session.query(Comment).filter(
         Comment.resource_id == resource.resource_id,
-        Comment.comment_is_approve == True
+        Comment.comment_is_approve == True,
+        Comment.comment_is_blocked == False
         ).order_by(Comment.comment_date.desc()).limit(20).all()
     for comment in comments:
         comment.formatted_date = format_date_with_suffix(comment.comment_date)
@@ -403,10 +500,14 @@ def add_comment(id):
  
     commenter_name = request.form.get('name')
     comment_body = request.form.get('comment')
-    resource = db.session.query(Resource).filter(Resource.resource_id == id).first()
+    resource = db.session.query(Resource).filter(
+        Resource.resource_id == id,
+        Resource.resource_status == 'published',
+        Resource.resource_is_deleted == False
+    ).first()
  
     if not resource:
-        return jsonify({'success': False, 'message': 'Reading Resource Not Found.'}), 400
+        return jsonify({'success': False, 'message': 'Resource Not Found.'}), 400
  
     if not comment_body or not commenter_name:
          return jsonify({'success': False, 'message': 'Missing required fields.'}), 400
@@ -438,6 +539,8 @@ def edit_comment(comment_id):
     comment = Comment.query.get(comment_id)
     if not comment:
         return jsonify({'success': False, 'message': 'Comment not found'}),400
+    if comment.comment_is_blocked:
+        return jsonify({'success': False, 'message': 'This comment can no longer be edited.'}), 403
     
     user_token = g.get('user_token')
 
@@ -466,10 +569,13 @@ def edit_comment(comment_id):
 @app.route('/delete-comment/', methods=['POST'])
 @limiter.limit("10 per hour", methods=['POST'])
 def delete_comment():
-    comment_id = request.json.get('id')
+    data = request.get_json(silent=True) or {}
+    comment_id = data.get('id')
     comment = Comment.query.get(comment_id)
     if not comment:
         return jsonify({'success': False, 'message': 'Comment not found'}),404
+    if comment.comment_is_blocked:
+        return jsonify({'success': False, 'message': 'This comment can no longer be deleted.'}), 403
     
     user_token = g.get('user_token')
 
@@ -486,7 +592,7 @@ def delete_comment():
 @limiter.limit("5 per hour", methods=['POST'])
 def subscribe():
     # Get the subscriber email from the request body (JSON)
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     subscriber = str(escape(data.get('subscriberEmail', '')).strip())
     
     email_regex = r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$'

@@ -1,0 +1,42 @@
+{% set tiptap_editor_id = editor_id|default('editor') %}
+<div class="beulah-tiptap" data-editor-id="{{ tiptap_editor_id }}">
+    <div class="tiptap-toolbar" data-tiptap-toolbar="{{ tiptap_editor_id }}">
+        <button type="button" class="tiptap-tool" data-command="undo" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>
+        <button type="button" class="tiptap-tool" data-command="redo" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>
+
+        <select class="tiptap-select" data-command="block" title="Paragraphs and headings">
+            <option value="paragraph">Paragraph</option>
+            <option value="heading-1">Heading 1</option>
+            <option value="heading-2">Heading 2</option>
+            <option value="heading-3">Heading 3</option>
+        </select>
+
+        <button type="button" class="tiptap-tool" data-command="bold" title="Bold"><strong>B</strong></button>
+        <button type="button" class="tiptap-tool" data-command="italic" title="Italic"><i>I</i></button>
+        <button type="button" class="tiptap-tool" data-command="underline" title="Underline"><u>U</u></button>
+        <button type="button" class="tiptap-tool" data-command="strike" title="Strikethrough"><s>S</s></button>
+
+        <button type="button" class="tiptap-tool" data-command="align-left" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+        <button type="button" class="tiptap-tool" data-command="align-center" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+        <button type="button" class="tiptap-tool" data-command="align-right" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+
+        <button type="button" class="tiptap-tool" data-command="bullet-list" title="Bullet list"><i class="fa-solid fa-list-ul"></i></button>
+        <button type="button" class="tiptap-tool" data-command="ordered-list" title="Numbered list"><i class="fa-solid fa-list-ol"></i></button>
+        <button type="button" class="tiptap-tool" data-command="blockquote" title="Blockquote"><i class="fa-solid fa-quote-left"></i></button>
+        <button type="button" class="tiptap-tool" data-command="code-block" title="Code block"><i class="fa-solid fa-code"></i></button>
+        <button type="button" class="tiptap-tool" data-command="horizontal-rule" title="Horizontal rule"><i class="fa-solid fa-minus"></i></button>
+        <button type="button" class="tiptap-tool" data-command="link" title="Link"><i class="fa-solid fa-link"></i></button>
+        <button type="button" class="tiptap-tool" data-command="image" title="Image"><i class="fa-regular fa-image"></i></button>
+        <button type="button" class="tiptap-tool" data-command="clear-formatting" title="Clear formatting"><i class="fa-solid fa-eraser"></i></button>
+
+        <input type="file" class="d-none tiptap-image-input" accept="image/jpeg,image/png,image/webp">
+    </div>
+
+    <div
+        id="{{ tiptap_editor_id }}"
+        class="tiptap-editor"
+        data-tiptap-editor
+        data-placeholder="{{ editor_placeholder|default('Start writing...') }}"
+        data-upload-url="{{ editor_upload_url|default('') }}"
+    >{{ editor_content|default('')|safe }}</div>
+</div>

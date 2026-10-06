@@ -61,9 +61,7 @@
           <th><h5>Date &amp; Time</h5></th>
           <th><h5>Format</h5></th>
           <th><h5>Status</h5></th>
-          <th><h5>Join</h5></th>
-          <th><h5>Manage</h5></th>
-          <th class="sticky-action"><h5>Delete</h5></th>
+          <th class="sticky-action"><h5>Actions</h5></th>
         </tr>
       </thead>
       <tbody>
@@ -88,28 +86,18 @@
                 {{ b.booking_status|replace('_',' ')|capitalize }}
               </span>
             </td>
-            <td class="join-action">
-              <p class="pointer">
-                {% if b.booking_meet_link %}
-                  <a href="{{ b.booking_meet_link }}" target="_blank" rel="noopener noreferrer">Join<i class="fa-solid fa-arrow-up-right-dots"></i></a>
-                {% else %}
-                  -
-                {% endif %}
-              </p>
-            </td>
-            <td class="edit-action">
-              <p class="pointer">
-                <a href="javascript:void(0)" class="manage-btn" data-id="{{ b.booking_id }}" data-status="{{ b.booking_status }}" data-notes="{{ b.booking_notes or '' }}"><i class="fa-regular fa-pen-to-square"></i> Manage</a>
-              </p>
-            </td>
             <td class="action sticky-action">
-              <p class="pointer delete-appointment-btn" data-id="{{ b.booking_id }}">
+              {% if b.booking_meet_link %}
+                <a class="join-action" href="{{ b.booking_meet_link }}" target="_blank" rel="noopener noreferrer" title="Join"><i class="fa-solid fa-arrow-up-right-dots"></i></a>
+              {% endif %}
+              <a href="#" class="manage-btn edit-action" data-id="{{ b.booking_id }}" data-status="{{ b.booking_status }}" data-notes="{{ b.booking_notes or '' }}" data-date="{{ b.booking_date.isoformat() }}" data-start-time="{{ b.booking_start_time.strftime('%H:%M') }}" title="Manage"><i class="fa-regular fa-pen-to-square"></i></a>
+              <button type="button" class="delete-appointment-btn delete-action" data-id="{{ b.booking_id }}" title="Delete">
                 <i class="fa-regular fa-trash-can"></i>
-              </p>
+              </button>
             </td>
           </tr>
         {% else %}
-          <tr><td colspan="8" class="text-center text-muted py-4"><p>No appointments found.</p></td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4"><p>No appointments found.</p></td></tr>
         {% endfor %}
       </tbody>
     </table>
@@ -132,6 +120,16 @@
         {% endfor %}
       </select>
     </div>
+    <div class="appointment-modal-grid">
+      <div class="input-style-1 mb-3">
+        <label class="form-label small" for="modalDate">Date</label>
+        <input type="date" id="modalDate" class="form-control form-control-sm">
+      </div>
+      <div class="input-style-1 mb-3">
+        <label class="form-label small" for="modalStartTime">Start time</label>
+        <input type="time" id="modalStartTime" class="form-control form-control-sm">
+      </div>
+    </div>
     <div class="input-style-1 mb-3">
       <label class="form-label small">Private Notes</label>
       <textarea id="modalNotes" class="form-control form-control-sm" rows="3"></textarea>
@@ -146,12 +144,14 @@
 {% endblock content %}
 
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function () {
   const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
   const baseUrl = "{{ base_url }}";
   const modal = document.getElementById('manageModal');
   const modalStatus = document.getElementById('modalStatus');
+  const modalDate = document.getElementById('modalDate');
+  const modalStartTime = document.getElementById('modalStartTime');
   const modalNotes = document.getElementById('modalNotes');
   const modalError = document.getElementById('modalError');
   let activeBookingId = null;
@@ -167,9 +167,12 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   document.querySelectorAll('.manage-btn').forEach(function (btn) {
-    btn.addEventListener('click', function () {
+    btn.addEventListener('click', function (event) {
+      event.preventDefault();
       activeBookingId = this.dataset.id;
       modalStatus.value = this.dataset.status;
+      modalDate.value = this.dataset.date;
+      modalStartTime.value = this.dataset.startTime;
       modalNotes.value = this.dataset.notes;
       modalError.style.display = 'none';
       modal.style.display = 'flex';
@@ -184,7 +187,13 @@ document.addEventListener('DOMContentLoaded', function () {
     fetch("{{ url_for('admin_update_appointment') }}", {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-      body: JSON.stringify({ id: activeBookingId, status: modalStatus.value, notes: modalNotes.value })
+      body: JSON.stringify({
+        id: activeBookingId,
+        status: modalStatus.value,
+        date: modalDate.value,
+        start_time: modalStartTime.value,
+        notes: modalNotes.value
+      })
     })
       .then(r => r.json().then(data => ({ ok: r.ok, data })))
       .then(({ ok, data }) => {

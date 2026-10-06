@@ -1,0 +1,132 @@
+{% extends 'admin/admin_template.html'%}
+
+{% block title %}Preview: {{ resource.resource_title }} - Beulah Foundation for Christ{% endblock title %}
+
+{% block content %}
+    <div class="admin-table-actions admin-preview-actions">
+        <a href="{{ url_for('admin_blog_resources') }}" class="admin-preview-back" title="Back to blog posts" aria-label="Back to blog posts"><i class="fa-solid fa-arrow-left"></i></a>
+        <div class="admin-preview-right-actions">
+            <a href="{{ url_for('edit_blog_resource', id=resource.resource_id) }}" class="link-1"><i class="fa-regular fa-pen-to-square"></i> Edit Post</a>
+            {% if copy_public_url %}
+                <a href="{{ copy_public_url }}" class="link-2" target="_blank" rel="noopener noreferrer"><i class="fa-solid fa-arrow-up-right-from-square"></i> Public View</a>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="admin-table-card admin-blog-preview-card">
+        <div class="admin-table-card-header">
+            <div>
+                <h2 class="admin-table-card-title">Blog Preview</h2>
+                <p class="admin-table-card-description">Review how this article will read before sharing it publicly.</p>
+            </div>
+            <div class="blog-preview-copy-actions">
+                {% if copy_public_url %}
+                    <button type="button" class="blog-preview-copy-btn" data-copy-type="link">
+                        <i class="fa-regular fa-copy"></i> Copy Link
+                    </button>
+                {% endif %}
+                <button type="button" class="blog-preview-copy-btn" data-copy-type="content">
+                    <i class="fa-regular fa-clipboard"></i> Copy Content
+                </button>
+            </div>
+        </div>
+
+        <div class="admin-blog-preview-banner">
+            <h1>{{ resource.resource_title }}</h1>
+        </div>
+
+        <main class="admin-article-detail-wrapper">
+            <article class="article-detail blog-article admin-article-detail">
+                <div class="blog-preview-notice">
+                    <i class="fa-regular fa-eye"></i>
+                    Admin preview
+                </div>
+
+                <div class="article-detail-meta-share">
+                    <div class="blog-article-meta">
+                        {% if resource.resource_category %}
+                            <span class="blog-category-pill">{{ resource.resource_category }}</span>
+                        {% endif %}
+                        <span>Beulah Foundation for Christ</span>
+                        {% if resource.resource_published_date %}
+                            <span>{{ resource.resource_published_date.strftime('%B %d, %Y') }}</span>
+                        {% else %}
+                            <span>Not published yet</span>
+                        {% endif %}
+                    </div>
+
+                    {% if copy_public_url %}
+                        <button
+                            type="button"
+                            class="article-share-button"
+                            aria-label="Share article"
+                            title="Share"
+                            data-share-article
+                            data-share-title="{{ resource.resource_title }}"
+                            data-share-url="{{ copy_public_url }}"
+                        >
+                            <i class="fa-solid fa-share-nodes"></i>
+                            <span>Share</span>
+                        </button>
+                    {% endif %}
+                </div>
+
+                {% if featured_image_url %}
+                    <img class="blog-article-featured-image" src="{{ featured_image_url }}" alt="{{ resource.resource_title }}">
+                {% endif %}
+
+                <div class="article-body-content blog-article-content" data-article-body>
+                    {{ resource.resource_body | safe }}
+                </div>
+            </article>
+        </main>
+    </div>
+{% endblock content %}
+
+{% block script %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function () {
+    const copyPublicUrl = {{ copy_public_url|default('', true)|tojson }};
+    const copyContentText = {{ copy_content_text|default('', true)|tojson }};
+
+    function copyText(value, label) {
+        const text = value || '';
+        if (!text.trim()) {
+            alertError('Error', `No ${label.toLowerCase()} available to copy.`);
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text)
+                .then(() => alertSuccess2('Copied', `${label} copied successfully.`))
+                .catch(() => fallbackCopyText(text, label));
+            return;
+        }
+        fallbackCopyText(text, label);
+    }
+
+    function fallbackCopyText(value, label) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        alertSuccess2('Copied', `${label} copied successfully.`);
+    }
+
+    document.querySelectorAll('.blog-preview-copy-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            if (this.dataset.copyType === 'link') {
+                copyText(copyPublicUrl, 'Link');
+                return;
+            }
+            copyText(copyContentText, 'Content');
+        });
+    });
+});
+</script>
+<script nonce="{{ csp_nonce }}" src="{{url_for('static', filename='javascript_folder/article_detail.js')}}"></script>
+{% endblock script %}

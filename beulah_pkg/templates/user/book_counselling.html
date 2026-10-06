@@ -58,7 +58,7 @@
           <section class="overview-tab-header counselling-form-padding">
             <h1>You don't have to carry this alone.</h1>
             <p>
-              We offer free and confidential online counseling
+              We offer free and confidential online counselling
               sessions, rooted in the word of God and genuine care. No accounts, no
               pressure - just a safe space to be heard.
             </p>
@@ -123,7 +123,7 @@
               </div>
             </div>
             <div class="text-center mt-10">
-              <button data-bs-toggle="tab" data-bs-target="#book-pane" class="counseling-cta-button">
+              <button data-bs-toggle="tab" data-bs-target="#book-pane" class="counselling-cta-button">
                 Book Your Session Now
               </button>
             </div>
@@ -134,11 +134,11 @@
             <div class="mission-content">
                 <h2>Help keep this mission free.</h2>
                 <h2 class="mission-vision">
-                  "Making counseling accessible to everyone regardless of circumstance."
+                  "Making counselling accessible to everyone regardless of circumstance."
                 </h2>
                 <p>
                   We are committed to
-                  providing free, faith-rooted counseling to individuals who need it
+                  providing free, faith-rooted counselling to individuals who need it
                   most. Every session is completely free.
                 </p>
                 <p>
@@ -178,7 +178,7 @@
               <div class="row g-2 mb-4">
                 <div class="col-md-6 col-12">
                   <button type="button" class="format-btn active" data-format="single">
-                    <strong>Single Session</strong><br><span class="small text-muted">One-time counseling session</span>
+                    <strong>Single Session</strong><br><span class="small text-muted">One-time counselling session</span>
                   </button>
                 </div>
                 <div class="col-md-6 col-12">
@@ -369,7 +369,7 @@
                 <span class="faq-icon">+</span>
               </button>
               <div class="faq-answer">
-                Yes, completely. Beulah Foundation for Christ is a ministry, and this counseling service will always be free, made possible through generous donations.
+                Yes, completely. Beulah Foundation for Christ is a ministry, and this counselling service will always be free, made possible through generous donations.
               </div>
             </div>
   
@@ -423,7 +423,7 @@
                 <span class="faq-icon">+</span>
               </button>
               <div class="faq-answer">
-                Only what is necessary: your name, email address, and optional phone number for booking. Your reason for counseling is optional and only visible to our counselor.
+                Only what is necessary: your name, email address, and optional phone number for booking. Your reason for counselling is optional and only visible to our counselor.
               </div>
             </div>
   
@@ -597,7 +597,7 @@
 {% endblock content %}
 
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}">
   document.addEventListener('DOMContentLoaded', function () {
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
     const todayStr = "{{ today }}";

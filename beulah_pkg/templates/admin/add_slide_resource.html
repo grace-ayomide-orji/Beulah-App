@@ -3,6 +3,7 @@
 {% block title %}Add New slide Resource - Beulah Foundation for Christ{% endblock title %}
 
 
+
 {% block content %}
 
 <div class="row editor-container">
@@ -10,12 +11,11 @@
         <h2>Add New Slide Resource</h2>
         <form id="resourceForm" method="POST" action="{{ url_for('add_slide_resource') }}">
 
-            <div class="input-style-1">
-              <label for="title">Title</label>
-              <input type="text" id="title" 
-                name="title" 
-                placeholder="Enter message title">
-            </div>
+            <input type="text" id="title"
+              class="blog-title-input"
+              name="title"
+              placeholder="Title"
+              autocomplete="off">
 
             <div class="input-style-1">
                 <label for="image">Images</label>
@@ -25,7 +25,22 @@
 
             <div class="input-style-1">
               <label for="content">Slide Content</label>
-              <div id="editor"></div>
+              {% set editor_id = 'editor' %}
+              {% set editor_content = '' %}
+              {% set editor_placeholder = 'Enter the content of the slide' %}
+              {% set editor_upload_url = url_for('admin_blog_editor_image_upload') %}
+              {% include 'admin/_tiptap_editor.html' %}
+            </div>
+
+            <div class="select-style-1 mb-4">
+              <label for="resource_status">Status</label>
+              <div class="select-position">
+                <select class="form-select" id="resource_status" name="resource_status">
+                  <option value="published" selected>Published</option>
+                  <option value="draft">Draft</option>
+                  <option value="suspended">Suspended</option>
+                </select>
+              </div>
             </div>
 
             <div class="links-buttons">
@@ -42,39 +57,11 @@
 {% endblock content %}
 
 {% block script %}
-<script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
-<script>
+<script nonce="{{ csp_nonce }}" type="module" src="{{url_for('static', filename='javascript_folder/tiptap_editor.js')}}"></script>
+<script nonce="{{ csp_nonce }}">
 
 window.addEventListener('DOMContentLoaded', function(){
     const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
-
-    const toolbarOptions = [
-      [{ 'size': ['small', false] }], 
-      ['bold', 'italic', 'underline'],
-      [{ 'list': 'ordered'}, { 'list': 'bullet' }],
-    ];
-
-    const quill = new Quill('#editor', {
-        modules: {
-            clipboard: {
-                matchers: [
-                  ['*', (node, delta) => {
-                      delta.ops.forEach(op => {
-                          if (op.attributes && (op.attributes.background || op.attributes.color)) {
-                          delete op.attributes.background;
-                          delete op.attributes.color;
-                          }
-                      });
-                      return delta;
-                  }]
-                ]
-            },
-            toolbar: toolbarOptions
-        },
-        
-        theme: 'snow',
-        placeholder:'Enter the Content of the messsage'
-    });
     
 
     document.getElementById('resourceForm').addEventListener('submit', function (e) {
@@ -83,8 +70,8 @@ window.addEventListener('DOMContentLoaded', function(){
         // Get data
         const title = document.getElementById('title').value;
         const image = document.getElementById('image').files[0]
-        const content = quill.root.innerHTML;
-        const cleanedContent = content.replace(/<p><br><\/p>/g, '').trim();
+        const editorData = window.BeulahTiptap.getData('editor');
+        const cleanedContent = editorData.html;
 
 
         if (!title.trim() || !cleanedContent.trim() || !image) {
@@ -101,6 +88,8 @@ window.addEventListener('DOMContentLoaded', function(){
         form.append('title', title);
         form.append('image', image);
         form.append('content', cleanedContent);
+        form.append('content_json', JSON.stringify(editorData.json || {}));
+        form.append('resource_status', document.getElementById('resource_status').value);
 
         fetch(this.action, {
             method: 'POST',
@@ -133,23 +122,10 @@ window.addEventListener('DOMContentLoaded', function(){
             console.error('Error:', error);
             alertError('Error', 'An unexpected error occurred. Please try again.');
             });
-        
+
     });
 
 
 })
 </script>
-    
 {% endblock script %}
-                           
-
-
-
-
-
-
-       
-   
-    
- 
-      

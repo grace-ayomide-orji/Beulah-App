@@ -117,7 +117,7 @@
 
 {% endblock content %}
 {% block script%}
-<script>
+<script nonce="{{ csp_nonce }}">
     
 document.addEventListener("DOMContentLoaded", function () {
     let hasAnimated = false; // Flag to track if animation has run

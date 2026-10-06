@@ -123,7 +123,7 @@
 {% endblock content %}
 
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function () {
   const baseUrl = "{{ base_url }}";
 

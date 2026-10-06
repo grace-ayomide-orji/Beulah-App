@@ -10,11 +10,12 @@ LOG_DIR = os.path.join(BASE_DIR, "logs")
 os.makedirs(LOG_DIR, exist_ok=True)
 
 
-logging.basicConfig(
-    level=logging.INFO,
-    filename=os.path.join(LOG_DIR, "event_cleanup.log"),
-    format="%(asctime)s %(levelname)s: %(message)s"
-)
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.FileHandler(os.path.join(LOG_DIR, "event_cleanup.log"))
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
 
 
 
@@ -34,17 +35,17 @@ def delete_expired_events(app):
  
             if event_datetime_utc < now_utc:
                 expired_events.append(event)
-                logging.info(f"Expired event found: {event.event_theme} on {event.event_date} {event.event_time}")
+                logger.info("Expired event found: %s on %s %s", event.event_theme, event.event_date, event.event_time)
  
         if expired_events:
             for event in expired_events:
                 delete_event_flyer(event.event_flyer_filename, upload_folder)
                 db.session.delete(event)
-                logging.info(f"Deleted event: {event.event_theme}")
+                logger.info("Deleted event: %s", event.event_theme)
             db.session.commit()
-            logging.info(f"Deleted {len(expired_events)} expired events")
+            logger.info("Deleted %s expired events", len(expired_events))
         else:
-            logging.info("No expired events found")
+            logger.info("No expired events found")
 
 # Only run directly when used as a script
 if __name__ == "__main__":

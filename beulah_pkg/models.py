@@ -56,6 +56,18 @@ class AdminSessionToken(db.Model):
     user_agent = db.Column(db.String(255), nullable=True)
 
 
+class AdminPasswordResetToken(db.Model):
+    __tablename__ = 'admin_password_reset_tokens'
+    token_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    admin_id = db.Column(db.Integer, db.ForeignKey('admin.admin_id'), nullable=False, index=True)
+    token_hash = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    consumed_at = db.Column(db.DateTime, nullable=True, index=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    ip_address = db.Column(db.String(45), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+
+
 class AdminAuditLog(db.Model):
     __tablename__ = 'admin_audit_logs'
     audit_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
@@ -77,7 +89,13 @@ class Resource(db.Model):
     resource_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
     resource_title = db.Column(db.String(255), nullable=False)
     resource_body = db.Column(db.Text, nullable=False)
-    resource_type = db.Column(db.Enum('audio', 'text', 'slide'), nullable=False)
+    resource_type = db.Column(db.Enum('audio', 'text', 'slide', 'blog'), nullable=False)
+    resource_slug = db.Column(db.String(255), nullable=True, unique=True, index=True)
+    resource_featured_image = db.Column(db.String(255), nullable=True)
+    resource_status = db.Column(db.Enum('draft', 'published', 'suspended', 'unpublished'), nullable=False, default='draft')
+    resource_published_date = db.Column(db.DateTime, nullable=True, index=True)
+    resource_category = db.Column(db.String(100), nullable=True)
+    resource_content_json = db.Column(db.Text, nullable=True)
     resource_date = db.Column(db.DateTime, default=datetime.utcnow)
     resource_updated_date = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     resource_is_deleted = db.Column(db.Boolean, default=False)
@@ -103,6 +121,7 @@ class Comment(db.Model):
     comment_by = db.Column(db.String(50), nullable=False)
     comment_body = db.Column(db.String(850), nullable=False)
     comment_is_approve = db.Column(db.Boolean, default=True)
+    comment_is_blocked = db.Column(db.Boolean, default=False)
     comment_date = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
