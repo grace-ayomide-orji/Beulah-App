@@ -2,13 +2,14 @@ import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta
-from flask import current_app, request, session
+from flask import current_app, request, session, url_for
 from flask_mail import Message
 from werkzeug.security import check_password_hash, generate_password_hash
 from beulah_pkg import mail
 from beulah_pkg.models import (
     AdminAuditLog,
     AdminMfaChallenge,
+    AdminPasswordResetToken,
     AdminSecurityState,
     AdminSessionToken,
     db,
@@ -21,11 +22,13 @@ MFA_CODE_MINUTES = int(os.getenv('ADMIN_MFA_CODE_MINUTES', '10'))
 MFA_MAX_ATTEMPTS = int(os.getenv('ADMIN_MFA_MAX_ATTEMPTS', '5'))
 LOCKOUT_THRESHOLD = int(os.getenv('ADMIN_LOCKOUT_THRESHOLD', '5'))
 LOCKOUT_MINUTES = int(os.getenv('ADMIN_LOCKOUT_MINUTES', '30'))
+PASSWORD_RESET_MINUTES = int(os.getenv('ADMIN_PASSWORD_RESET_MINUTES', '30'))
 
 SECURITY_TABLES = (
     AdminSecurityState.__table__,
     AdminMfaChallenge.__table__,
     AdminSessionToken.__table__,
+    AdminPasswordResetToken.__table__,
     AdminAuditLog.__table__,
 )
 
@@ -43,6 +46,13 @@ def ensure_security_tables(app):
 
 def hash_token(token):
     return hashlib.sha256(token.encode('utf-8')).hexdigest()
+
+def admin_security_email_recipient():
+    return (
+        os.getenv('ADMIN_MFA_EMAIL')
+        or os.getenv('ADMIN_EMAIL')
+        or current_app.config.get('MAIL_USERNAME')
+    )
 
 def _request_ip():
     return (request.remote_addr or '')[:45]
@@ -91,6 +101,17 @@ def reset_failed_login(admin):
     state.last_failed_at = None
     db.session.commit()
 
+def validate_admin_password(password):
+    if len(password) < 12:
+        return False, 'Password must be at least 12 characters long.'
+    if not any(char.islower() for char in password):
+        return False, 'Password must include a lowercase letter.'
+    if not any(char.isupper() for char in password):
+        return False, 'Password must include an uppercase letter.'
+    if not any(char.isdigit() for char in password):
+        return False, 'Password must include a number.'
+    return True, 'Password is valid.'
+
 def create_mfa_challenge(admin):
     now = datetime.utcnow()
 
@@ -119,11 +140,7 @@ def create_mfa_challenge(admin):
     return challenge
 
 def send_mfa_code(admin, code):
-    recipient = (
-        os.getenv('ADMIN_MFA_EMAIL')
-        or os.getenv('ADMIN_EMAIL')
-        or current_app.config.get('MAIL_USERNAME')
-    )
+    recipient = admin_security_email_recipient()
     if not recipient:
         raise RuntimeError('ADMIN_MFA_EMAIL or MAIL_USERNAME is required for admin MFA.')
 
@@ -138,6 +155,80 @@ def send_mfa_code(admin, code):
         'If you did not try to sign in, change the admin password immediately.'
     )
     mail.send(msg)
+
+def create_password_reset_token(admin):
+    now = datetime.utcnow()
+
+    AdminPasswordResetToken.query.filter(
+        AdminPasswordResetToken.admin_id == admin.admin_id,
+        AdminPasswordResetToken.consumed_at.is_(None),
+    ).update(
+        {'consumed_at': now},
+        synchronize_session=False
+    )
+
+    token = secrets.token_urlsafe(48)
+    token_record = AdminPasswordResetToken(
+        admin_id=admin.admin_id,
+        token_hash=hash_token(token),
+        expires_at=now + timedelta(minutes=PASSWORD_RESET_MINUTES),
+        ip_address=_request_ip(),
+        user_agent=_request_user_agent(),
+    )
+
+    db.session.add(token_record)
+    db.session.commit()
+    send_password_reset_link(admin, token)
+    return token_record
+
+def send_password_reset_link(admin, token):
+    recipient = admin_security_email_recipient()
+    if not recipient:
+        raise RuntimeError('ADMIN_MFA_EMAIL or MAIL_USERNAME is required for admin password reset.')
+
+    reset_path = url_for('admin_reset_password', token=token, _external=False)
+    app_url = (current_app.config.get('APP_URL') or '').rstrip('/')
+    reset_url = f'{app_url}{reset_path}' if app_url else url_for('admin_reset_password', token=token, _external=True)
+    msg = Message(
+        subject='Reset your Beulah admin password',
+        sender=current_app.config['MAIL_DEFAULT_SENDER'],
+        recipients=[recipient],
+    )
+    msg.body = (
+        f'A password reset was requested for the Beulah admin account "{admin.admin_username}".\n\n'
+        f'Reset your password here: {reset_url}\n\n'
+        f'This link expires in {PASSWORD_RESET_MINUTES} minutes. '
+        'If you did not request this, ignore this email and review admin audit logs.'
+    )
+    mail.send(msg)
+
+def get_password_reset_record(token):
+    if not token:
+        return None, 'Password reset link is invalid.'
+
+    record = AdminPasswordResetToken.query.filter_by(
+        token_hash=hash_token(str(token))
+    ).first()
+
+    if not record or record.consumed_at:
+        return None, 'Password reset link is invalid or has already been used.'
+    if record.expires_at < datetime.utcnow():
+        return None, 'Password reset link has expired.'
+
+    return record, 'Password reset link is valid.'
+
+def revoke_all_admin_sessions(admin_id):
+    now = datetime.utcnow()
+    AdminSessionToken.query.filter(
+        AdminSessionToken.admin_id == admin_id,
+        AdminSessionToken.revoked_at.is_(None),
+    ).update(
+        {'revoked_at': now},
+        synchronize_session=False
+    )
+    db.session.commit()
+
+    session.clear()
 
 def verify_mfa_challenge(challenge, code):
     if not challenge or challenge.consumed_at:

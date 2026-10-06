@@ -80,7 +80,7 @@ def send_booking_confirmation(booking):
 
     inner = f"""
     <p>Hi <strong>{booking.booker.booker_name}</strong>,</p>
-    <p>Your counseling session has been successfully booked. We look forward to speaking with you.</p>
+    <p>Your counselling session has been successfully booked. We look forward to speaking with you.</p>
     <div class="detail-card">
       <div class="detail-row"><span class="detail-label">Date:</span><span class="detail-value">{date_formatted}</span></div>
       <div class="detail-row"><span class="detail-label">Time:</span><span class="detail-value">{start} - {end} (WAT)</span></div>
@@ -106,6 +106,59 @@ def send_booking_confirmation(booking):
 
 
 # ── Admin/counselor notification ──────────────────────────────────────────
+def send_booking_rescheduled_confirmation(booking, old_date=None, old_start=None, old_end=None):
+    manage_url = f"{APP_URL}/book_counselling/?token={booking.booking_manage_token}"
+    date_formatted = _format_date(booking.booking_date)
+    start = booking.booking_start_time.strftime('%H:%M')
+    end = booking.booking_end_time.strftime('%H:%M')
+
+    previous_row = ''
+    if old_date and old_start and old_end:
+        previous_row = (
+            '<div class="detail-row"><span class="detail-label">Previous Time:</span>'
+            f'<span class="detail-value">{_format_date(old_date)} '
+            f'{old_start.strftime("%H:%M")} - {old_end.strftime("%H:%M")} (WAT)</span></div>'
+        )
+
+    meet_row = ''
+    join_btn = ''
+    meet_note = '<p>Your meeting link will be sent by email before the session.</p>'
+    if booking.booking_meet_link:
+        meet_row = (
+            '<div class="detail-row"><span class="detail-label">Meeting Link:</span>'
+            f'<span class="detail-value"><a href="{booking.booking_meet_link}" style="color:#6D0F15">'
+            f'{booking.booking_meet_link}</a></span></div>'
+        )
+        join_btn = f'<a href="{booking.booking_meet_link}" class="btn">Join Meeting</a>'
+        meet_note = ''
+
+    inner = f"""
+    <p>Hi <strong>{booking.booker.booker_name}</strong>,</p>
+    <p>Your counselling session has been rescheduled. Please use the updated date and time below.</p>
+    <div class="detail-card">
+      {previous_row}
+      <div class="detail-row"><span class="detail-label">New Date:</span><span class="detail-value">{date_formatted}</span></div>
+      <div class="detail-row"><span class="detail-label">New Time:</span><span class="detail-value">{start} - {end} (WAT)</span></div>
+      <div class="detail-row"><span class="detail-label">Format:</span><span class="detail-value">{booking.booking_session_type.capitalize()}</span></div>
+      {meet_row}
+    </div>
+    <p style="text-align:center; margin-top:24px">
+      {join_btn}
+      <a href="{manage_url}" class="btn btn-outline">Manage Appointment</a>
+    </p>
+    {meet_note}
+    <p>God bless,<br/><strong>Beulah Foundation for Christ</strong></p>
+    """
+
+    msg = Message(
+        subject=f"Session Rescheduled - {date_formatted}",
+        sender=app.config['MAIL_DEFAULT_SENDER'],
+        recipients=[booking.booker.booker_email]
+    )
+    msg.html = _base_template(inner)
+    mail.send(msg)
+
+
 def send_counselor_notification(event_type, booking, cancel_reason=None):
     """event_type: 'created' | 'cancelled' | 'rescheduled'"""
     labels = {

@@ -1,4 +1,30 @@
-
+{% set current_endpoint = request.endpoint %}
+{% set active_user_nav = active_user_nav|default('', true) %}
+{% if not active_user_nav %}
+    {% if current_endpoint in ['home'] %}
+        {% set active_user_nav = 'home' %}
+    {% elif current_endpoint in ['about'] %}
+        {% set active_user_nav = 'about' %}
+    {% elif current_endpoint in ['reading_resources', 'dynamic_messages'] %}
+        {% set active_user_nav = 'messages' %}
+    {% elif current_endpoint in ['audio_resources', 'dynamic_audios'] %}
+        {% set active_user_nav = 'audios' %}
+    {% elif current_endpoint in ['blog_posts', 'blog_detail'] %}
+        {% set active_user_nav = 'blog' %}
+    {% elif current_endpoint in ['prayer_request'] %}
+        {% set active_user_nav = 'prayer_request' %}
+    {% elif current_endpoint in ['partnership'] %}
+        {% set active_user_nav = 'partnership' %}
+    {% elif current_endpoint in ['book_session'] %}
+        {% set active_user_nav = 'counselling' %}
+    {% elif current_endpoint in ['upcoming_event'] %}
+        {% set active_user_nav = 'upcoming_events' %}
+    {% elif current_endpoint in ['contact_us'] %}
+        {% set active_user_nav = 'contact' %}
+    {% elif current_endpoint == 'dynamic_slides' %}
+        {% set active_user_nav = 'home' %}
+    {% endif %}
+{% endif %}
 
 <div class="col-12 all-nav parent">
 
@@ -26,34 +52,35 @@
                 <ul class="nav-menu">
 
                     <li class="nav-item">
-                    <a class="nav-link" aria-current="page" href="{{url_for('home')}}">Home</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'home' else '' }}" aria-current="page" href="{{url_for('home')}}">Home</a>
                     </li>
                     
                     <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('about')}}">About</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'about' else '' }}" href="{{url_for('about')}}">About</a>
                     </li>
 
-                    <li class="nav-item"><a class="nav-link" href="{{url_for('reading_resources')}}">Messages</a></li>
-                    <li class="nav-item"><a class="nav-link" href="{{url_for('audio_resources')}}">Audios</a></li>
+                    <li class="nav-item"><a class="nav-link {{ 'active' if active_user_nav == 'messages' else '' }}" href="{{url_for('reading_resources')}}">Messages</a></li>
+                    <li class="nav-item"><a class="nav-link {{ 'active' if active_user_nav == 'audios' else '' }}" href="{{url_for('audio_resources')}}">Audios</a></li>
+                    <li class="nav-item"><a class="nav-link {{ 'active' if active_user_nav == 'blog' else '' }}" href="{{url_for('blog_posts')}}">Blog</a></li>
 
                     <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('prayer_request')}}">Prayer Request</a>
-                    </li>
-
-                    <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('partnership')}}">Partnership</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'prayer_request' else '' }}" href="{{url_for('prayer_request')}}">Prayer Request</a>
                     </li>
 
                     <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('book_session')}}">Counselling</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'partnership' else '' }}" href="{{url_for('partnership')}}">Partnership</a>
                     </li>
 
                     <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('upcoming_event')}}">Upcoming Events</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'counselling' else '' }}" href="{{url_for('book_session')}}">Counselling</a>
                     </li>
 
                     <li class="nav-item">
-                    <a class="nav-link" href="{{url_for('contact_us')}}">Contact</a>
+                    <a class="nav-link {{ 'active' if active_user_nav == 'upcoming_events' else '' }}" href="{{url_for('upcoming_event')}}">Upcoming Events</a>
+                    </li>
+
+                    <li class="nav-item">
+                    <a class="nav-link {{ 'active' if active_user_nav == 'contact' else '' }}" href="{{url_for('contact_us')}}">Contact</a>
                     </li>
 
                 </ul>
@@ -75,12 +102,12 @@
 
 
 
-<script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
+<script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
         {% for category, message in messages %}
-        <script>
+        <script nonce="{{ csp_nonce }}">
             document.addEventListener('DOMContentLoaded', function(){
                 Swal.fire({
                     icon: "{{ 'error' if category == 'error' else 'info' if category == 'info' else 'success' if category=='success' else 'warning' }}",

@@ -16,6 +16,67 @@
             </div>
         </div>
 
+    <div class="row filter-parent-container">
+        <div class="col-12 filter-container">
+            <div class="filter-section">
+                <div class="select-style-1">
+                    <div class="select-position">
+                        <select class="form-select" name="status">
+                            <option value="all" {% if request.args.get('status', 'all') == 'all' %}selected{% endif %}>All Statuses</option>
+                            <option value="draft" {% if request.args.get('status') == 'draft' %}selected{% endif %}>Draft</option>
+                            <option value="published" {% if request.args.get('status') == 'published' %}selected{% endif %}>Published</option>
+                            <option value="suspended" {% if request.args.get('status') == 'suspended' %}selected{% endif %}>Suspended</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="select-style-1">
+                    <div class="select-position">
+                        <select class="form-select months" name="month">
+                            <option value="all" {% if request.args.get('month', 'all') == 'all' %}selected{% endif %}>All Months</option>
+                            <option value="1" {% if request.args.get('month') == '1' %}selected{% endif %}>January</option>
+                            <option value="2" {% if request.args.get('month') == '2' %}selected{% endif %}>February</option>
+                            <option value="3" {% if request.args.get('month') == '3' %}selected{% endif %}>March</option>
+                            <option value="4" {% if request.args.get('month') == '4' %}selected{% endif %}>April</option>
+                            <option value="5" {% if request.args.get('month') == '5' %}selected{% endif %}>May</option>
+                            <option value="6" {% if request.args.get('month') == '6' %}selected{% endif %}>June</option>
+                            <option value="7" {% if request.args.get('month') == '7' %}selected{% endif %}>July</option>
+                            <option value="8" {% if request.args.get('month') == '8' %}selected{% endif %}>August</option>
+                            <option value="9" {% if request.args.get('month') == '9' %}selected{% endif %}>September</option>
+                            <option value="10" {% if request.args.get('month') == '10' %}selected{% endif %}>October</option>
+                            <option value="11" {% if request.args.get('month') == '11' %}selected{% endif %}>November</option>
+                            <option value="12" {% if request.args.get('month') == '12' %}selected{% endif %}>December</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="select-style-1">
+                    <div class="select-position">
+                        <select class="form-select sort-order" name="sortOrder">
+                            <option value="desc" {{ get_selected_option('desc') }}>Desc</option>
+                            <option value="asc" {{ get_selected_option('asc') }}>Asc</option>
+                        </select>
+                    </div>
+                </div>
+
+                <button id="filter-slide-resources" class="butt-1">Filter</button>
+            </div>
+
+            <div class="search-filter-form">
+                <form role="search" id="slides-search-form">
+                    <input
+                        type="search"
+                        placeholder="Search by title..."
+                        name="title"
+                        aria-label="Search slides"
+                        id="search-bar"
+                        value="{{ request.args.get('title', '') }}"
+                    >
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="row">
         <div class="col-12 table-wrapper">
 
@@ -40,15 +101,15 @@
                     </th>
 
                     <th>
-                        <h5>Date Updated</h5>
+                        <h5>Status</h5>
                     </th>
 
                     <th>
-                        <h5>Edit</h5>
+                        <h5>Date Updated</h5>
                     </th>
 
                     <th class="sticky-action">
-                        <h5>View</h5>
+                        <h5>Actions</h5>
                     </th>
 
                     </tr>
@@ -60,7 +121,7 @@
                         {% for resource, slide, comment_count in slide_resources  %}
                             <tr id="slide-{{slide.resource_id}}">
                                 <td class="loop-num">
-                                    <p>{{loop.index }}</p>
+                                    <p>{{ (pagination.page - 1) * pagination.per_page + loop.index }}</p>
                                 </td>
 
                                 <td class="min-width special-td">
@@ -84,15 +145,26 @@
                                 </td>
 
                                 <td class="min-width">
+                                    <p><span class="badge resource-status-badge resource-status-{{ resource.resource_status }}">{{ resource.resource_status|title }}</span></p>
+                                </td>
+
+                                <td class="min-width">
                                     <p>{{resource.resource_updated_date.strftime('%d-%b-%Y')}}</p>
                                 </td>
                                 
-                                <td class="edit-action">
-                                    <p class="pointer"><a href="{{url_for('edit_slide_resource', id=resource.resource_id)}}"><i class="fa-regular fa-pen-to-square"></i> Edit</a></p>
-                                </td>
-
-                                <td class="view-action sticky-action">
-                                    <p class="pointer"><a href="{{url_for('dynamic_slides', id=resource.resource_id)}}"><i class="fa-regular fa-eye"></i> View</a></p>
+                                <td class="action sticky-action">
+                                    <a class="edit-action" href="{{url_for('edit_slide_resource', id=resource.resource_id)}}" title="Edit"><i class="fa-regular fa-pen-to-square"></i></a>
+                                    <a class="view-action" href="{{url_for('admin_resource_preview', id=resource.resource_id)}}" target="_blank" rel="noopener noreferrer" title="Preview"><i class="fa-regular fa-eye"></i></a>
+                                    {% if resource.resource_status != 'published' %}
+                                        <button type="button" class="resource-status-action publish-action" data-status="published" data-id="{{ resource.resource_id }}" title="Publish"><i class="fa-solid fa-paper-plane"></i></button>
+                                    {% endif %}
+                                    {% if resource.resource_status != 'draft' %}
+                                        <button type="button" class="resource-status-action draft-action" data-status="draft" data-id="{{ resource.resource_id }}" title="Move to draft"><i class="fa-regular fa-file-lines"></i></button>
+                                    {% endif %}
+                                    {% if resource.resource_status != 'suspended' %}
+                                        <button type="button" class="resource-status-action suspend-action" data-status="suspended" data-id="{{ resource.resource_id }}" title="Suspend"><i class="fa-solid fa-ban"></i></button>
+                                    {% endif %}
+                                    <button type="button" class="delete-resource-btn delete-action" data-id="{{resource.resource_id}}" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
                                 </td>
                             </tr>
                         {% else %}
@@ -112,9 +184,94 @@
 
         </div>
     </div>
+    {% set pagination_label = 'slides' %}
+    {% set pagination_query = 'sortOrder=' ~ request.args.get('sortOrder', 'desc') ~ '&month=' ~ request.args.get('month', 'all') ~ '&status=' ~ request.args.get('status', 'all') ~ '&title=' ~ request.args.get('title', '') %}
+    {% include 'admin/_pagination_footer.html' %}
     </div>
     
 {% endblock content %}
+
+{% block script %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function(){
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const baseUrl = "{{ base_url }}";
+
+    function currentFilterUrl() {
+        const sortOrder = document.querySelector('select[name="sortOrder"]').value;
+        const month = document.querySelector('select[name="month"]').value;
+        const status = document.querySelector('select[name="status"]').value;
+        const titleQuery = document.querySelector('input[name="title"]').value;
+        return `${baseUrl}?page=1&sortOrder=${encodeURIComponent(sortOrder)}&month=${encodeURIComponent(month)}&status=${encodeURIComponent(status)}&title=${encodeURIComponent(titleQuery)}`;
+    }
+
+    document.getElementById('filter-slide-resources').addEventListener('click', function () {
+        window.location.href = currentFilterUrl();
+    });
+
+    document.getElementById('slides-search-form').addEventListener('submit', function(event) {
+        event.preventDefault();
+        window.location.href = currentFilterUrl();
+    });
+
+    document.querySelectorAll('.resource-status-action').forEach(button => {
+        button.addEventListener('click', function () {
+            fetch('{{ url_for("update_resource_status") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ id: this.dataset.id, status: this.dataset.status })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alertSuccess2('Successful', data.message);
+                    setTimeout(() => window.location.reload(), 700);
+                    return;
+                }
+                alertError('Error', data.message);
+            })
+            .catch(() => alertError('Error', 'Something went wrong. Please try again.'));
+        });
+    });
+
+    document.querySelectorAll('.delete-resource-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const resourceId = this.dataset.id;
+            confirmDelete('Are you sure you want to delete this slide resource?').then(confirmed => {
+                if (!confirmed) {
+                    return;
+                }
+
+                fetch('{{url_for("delete_resource")}}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ id: resourceId })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alertSuccess2('Successful', data.message);
+                        const row = document.getElementById(`slide-${resourceId}`);
+                        if (row) {
+                            row.remove();
+                        }
+                        return;
+                    }
+                    alertError('Error', data.message);
+                })
+                .catch(() => alertError('Error', 'Something went wrong. Please try again.'));
+            });
+        });
+    });
+});
+</script>
+{% endblock script %}
 
 
                            

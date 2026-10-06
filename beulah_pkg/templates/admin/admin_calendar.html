@@ -2,8 +2,7 @@
 
 {% block title %}Calendar - Beulah Foundation for Christ{% endblock title %}
 {% block link %}
-<link rel="preload" href="{{url_for('static', filename='css_folder/pignose.calendar.min.css')}}" as="style" crossorigin="anonymous" onload="this.onload=null;this.rel='stylesheet'">
-<noscript><link rel="stylesheet" href="{{url_for('static', filename='css_folder/pignose.calendar.min.css')}}"></noscript>
+<link rel="stylesheet" href="{{url_for('static', filename='css_folder/pignose.calendar.min.css')}}">
 {% endblock link %}
 
 {% block content %}
@@ -27,10 +26,10 @@
 {% endblock content %}
 
 {% block script %}
-    <script src="{{url_for('static',filename='javascript_folder/jquery-3.7.1.min.js')}}"></script>
-    <script src="{{url_for('static',filename='javascript_folder/pignose.calendar.full.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" src="{{url_for('static',filename='javascript_folder/jquery-3.7.1.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}" src="{{url_for('static',filename='javascript_folder/pignose.calendar.full.min.js')}}"></script>
     
-    <script>
+    <script nonce="{{ csp_nonce }}">
         $(function () {
             "use strict";
 

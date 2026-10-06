@@ -38,7 +38,7 @@ def _day_of_week_sunday_zero(target_date):
     return (target_date.weekday() + 1) % 7
 
 
-def get_available_slots(target_date):
+def get_available_slots(target_date, exclude_booking_id=None):
     """
     target_date: a datetime.date.
     Returns a list of dicts: {'start_time': 'HH:MM', 'end_time': 'HH:MM', 'available': bool}
@@ -54,10 +54,14 @@ def get_available_slots(target_date):
 
     all_slots = generate_slots(working_hours.wh_start_time, working_hours.wh_end_time)
 
-    existing = db.session.query(Booking.booking_start_time).filter(
+    existing_query = db.session.query(Booking.booking_start_time).filter(
         Booking.booking_date == target_date,
         Booking.booking_status != 'cancelled'
-    ).all()
+    )
+    if exclude_booking_id is not None:
+        existing_query = existing_query.filter(Booking.booking_id != exclude_booking_id)
+
+    existing = existing_query.all()
     booked_times = {row[0] for row in existing}
 
     # Recurring weekly exceptions for this day (e.g. "every Wednesday 5-6pm")
@@ -84,9 +88,9 @@ def get_available_slots(target_date):
 
     return result
 
-def is_slot_available(target_date, start_time):
+def is_slot_available(target_date, start_time, exclude_booking_id=None):
     """start_time: datetime.time"""
-    for slot in get_available_slots(target_date):
+    for slot in get_available_slots(target_date, exclude_booking_id=exclude_booking_id):
         if slot['start_time'] == start_time.strftime('%H:%M') and slot['available']:
             return True
     return False

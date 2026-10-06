@@ -1,9 +1,8 @@
-from flask import Flask,render_template
+from flask import Flask, current_app, render_template
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import TooManyRequests
 from sqlalchemy.exc import InterfaceError
 from beulah_pkg import app
-import traceback
 # import logging
 
 
@@ -73,8 +72,7 @@ def error408(e):
 #server error
 @app.errorhandler(500)
 def error500(e):
-    # app.logger.error(f"Server Error: {e}")
-    print(e)
+    current_app.logger.exception('Server error: %s', e)
     return render_template('error/error500.html'), 500
 
 
@@ -83,7 +81,7 @@ def error500(e):
 @app.errorhandler(Exception)
 def handle_exception(e):
     # This will catch any unhandled exceptions and trigger your custom 500 page
-    traceback.print_exc()
+    current_app.logger.exception('Unhandled exception: %s', e)
     return render_template('error/error500.html'), 500
 
 
@@ -92,6 +90,5 @@ def handle_exception(e):
 
 @app.errorhandler(InterfaceError)
 def handle_interface_error(e):
-    # app.logger.error(f"Database connection error: {e}")
-    print(e)
+    current_app.logger.exception('Database connection error: %s', e)
     return render_template("error/dberror.html"), 500

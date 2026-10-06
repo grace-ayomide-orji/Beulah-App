@@ -1,0 +1,338 @@
+{% extends "user/user_template.html" %}
+
+{% block title %}{{ page_title|default(resource.resource_title ~ ' - Beulah Foundation for Christ') }}{% endblock %}
+
+{% block content %}
+    <div class="row">
+        {% include "user/navigation.html" %}
+        <div class="col-12 pages-banner">
+            <div class="banner-heading">
+                <h1 class="dynamic-title-header">{{ resource.resource_title }}</h1>
+            </div>
+        </div>
+    </div>
+
+    <main class="article-detail-wrapper blog-article-wrapper" data-aos="fade-up">
+        <article class="article-detail blog-article">
+
+            <div class="article-detail-meta-share">
+                <div class="blog-article-meta">
+                    {% if resource.resource_category %}
+                        <span class="blog-category-pill">{{ resource.resource_category }}</span>
+                    {% endif %}
+                    {% if resource.resource_published_date %}
+                        <span>{{ resource.resource_published_date.strftime('%B %d, %Y') }}</span>
+                    {% else %}
+                        <span>Not published yet</span>
+                    {% endif %}
+                </div>
+
+                <button
+                    type="button"
+                    class="article-share-button"
+                    aria-label="Share article"
+                    title="Share"
+                    data-share-article
+                    data-share-title="{{ resource.resource_title }}"
+                    data-share-url="{{ copy_public_url if is_preview else canonical_url }}"
+                >
+                    <i class="fa-solid fa-share-nodes"></i>
+                    <span>Share</span>
+                </button>
+            </div>
+
+            {% if featured_image_url %}
+            <div class="blog-featured-image-wrapper">
+                    <img
+                        class="blog-article-featured-image"
+                        src="{{ featured_image_url }}"
+                        alt="{{ resource.resource_title }}"
+                    >
+                </div>
+            {% endif %}
+
+            <div class="article-body-content blog-article-content" data-article-body>
+                {{ resource.resource_body | safe }}
+            </div>
+
+        </article>
+    </main>
+
+    <div class="row comment-resource-parent" data-aos="fade-up">
+        <div class="col-12">
+            <div class="comment-card">
+                <span class="title">Recent Comments</span>
+                <div class="comments-list">
+                    {% if comments %}
+                        {% for comment in comments %}
+                            <div class="comment-container" id="comment-{{ comment.comment_id }}">
+                                <div class="user">
+                                    <div class="user-pic">
+                                        <i class="fa-solid fa-user"></i>
+                                    </div>
+                                    <div class="user-info">
+                                        <span class="comment-by">{{ comment.comment_by | title }}</span>
+                                        <p>{{ comment.formatted_date }}</p>
+                                    </div>
+                                </div>
+                                <p class="comment-content">{{ comment.comment_body }}</p>
+
+                                {% if user_token and user_token == comment.comment_token %}
+                                    <div class="action-button">
+                                        <button class="edit-btn" data-id="{{ comment.comment_id }}" title="Edit">
+                                            <i class="fa-solid fa-pen-to-square"></i>
+                                        </button>
+                                        <button class="cancel-btn" data-id="{{ comment.comment_id }}" title="Cancel" style="display:none;">
+                                            <i class="fa-solid fa-times"></i>
+                                        </button>
+                                        <button class="delete-btn" data-id="{{ comment.comment_id }}" title="Delete">
+                                            <i class="fa-solid fa-trash-can"></i>
+                                        </button>
+                                    </div>
+                                {% endif %}
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="p-2">Be the first to add a comment</p>
+                    {% endif %}
+
+                    <div id="text-box-wrapper" class="text-box">
+                        <div class="box-container">
+                            <p><span id="char-count">0</span>/850 characters</p>
+                            <form id="comment-form" method="POST">
+                                <input type="hidden" id="current-mode" value="add">
+                                <input type="text" placeholder="Please Enter Your Name" name="name" id="commenter" required>
+                                <textarea placeholder="Comment" id="comment-box" name="comment" required></textarea>
+                                <input type="hidden" id="comment-id" value="">
+
+                                <div class="formatting">
+                                    <button type="button" class="emoji-btn" data-emoji="👍">👍</button>
+                                    <button type="button" class="emoji-btn" data-emoji="❤️">❤️</button>
+                                    <button type="button" class="emoji-btn" data-emoji="😊">😊</button>
+                                    <button type="button" class="emoji-btn" data-emoji="🙏">🙏</button>
+                                    <button type="submit" class="send" title="Send">
+                                        <i class="fa-solid fa-arrow-up"></i>
+                                    </button>
+                                </div>
+
+                                <div class="input-style-1">
+                                    <div id="turnstileComment" class="cf-turnstile" data-sitekey="{{ turnstile_site_key }}"></div>
+                                </div>
+
+                                <div class="hp-field" aria-hidden="true">
+                                    <label for="commentWebsite">Leave this field empty</label>
+                                    <input type="text" name="website" id="commentWebsite" tabindex="-1" autocomplete="off">
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+{% endblock content %}
+
+{% block script %}
+<script nonce="{{ csp_nonce }}" src="{{url_for('static', filename='javascript_folder/article_detail.js')}}"></script>
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function () {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const commentForm = document.getElementById('comment-form');
+    const emojiButtons = document.querySelectorAll('.emoji-btn');
+    const textBox = document.getElementById('comment-box');
+    const charCountDisplay = document.getElementById('char-count');
+    const maxCharacters = 850;
+    const resourceId = '{{ resource.resource_id }}';
+
+    if (!commentForm || !textBox) {
+        return;
+    }
+
+    function resetCommentForm() {
+        const commentsList = document.querySelector('.comments-list');
+        const textBoxWrapper = document.getElementById('text-box-wrapper');
+        document.getElementById('current-mode').value = 'add';
+        document.getElementById('comment-id').value = '';
+        commentForm.reset();
+        textBox.style.height = 'auto';
+        charCountDisplay.textContent = '0';
+        commentsList.appendChild(textBoxWrapper);
+        document.querySelectorAll('.cancel-btn').forEach(button => {
+            button.style.display = 'none';
+        });
+        document.querySelectorAll('.edit-btn').forEach(button => {
+            button.style.display = 'inline-block';
+        });
+    }
+
+    emojiButtons.forEach(button => {
+        button.addEventListener('click', function () {
+            const emoji = this.getAttribute('data-emoji');
+            const start = textBox.selectionStart;
+            const end = textBox.selectionEnd;
+            const text = textBox.value;
+
+            textBox.value = text.substring(0, start) + emoji + text.substring(end);
+            textBox.selectionStart = textBox.selectionEnd = start + emoji.length;
+            textBox.focus();
+            textBox.dispatchEvent(new Event('input'));
+        });
+    });
+
+    textBox.addEventListener('input', function () {
+        if (this.value.length > maxCharacters) {
+            this.value = this.value.slice(0, maxCharacters);
+        }
+
+        this.style.height = 'auto';
+        this.style.height = this.scrollHeight + 'px';
+        charCountDisplay.textContent = `${this.value.length}`;
+    });
+
+    document.querySelectorAll('.delete-btn').forEach(button => {
+        button.addEventListener('click', function () {
+            const commentId = this.dataset.id;
+
+            fetch('{{ url_for("delete_comment") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ id: commentId })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: data.message,
+                        showConfirmButton: false,
+                        timer: 1000
+                    });
+
+                    const row = document.getElementById(`comment-${commentId}`);
+                    if (row) {
+                        row.remove();
+                    }
+                    return;
+                }
+
+                alertError('Error', data.message);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alertError('Oops', 'An unexpected error occurred. Please try again.');
+            });
+        });
+    });
+
+    document.querySelectorAll('.edit-btn').forEach(editButton => {
+        editButton.addEventListener('click', function () {
+            const commentId = this.getAttribute('data-id');
+            const textBoxWrapper = document.getElementById('text-box-wrapper');
+            const commentContainer = this.closest('.comment-container');
+            const commentContent = commentContainer.querySelector('.comment-content').textContent.trim();
+            const cancelButton = this.closest('.action-button').querySelector('.cancel-btn');
+            const commenterName = commentContainer.querySelector('.comment-by').textContent.trim();
+
+            document.getElementById('current-mode').value = 'edit';
+            document.getElementById('comment-id').value = commentId;
+            document.getElementById('commenter').value = commenterName;
+            textBox.value = commentContent;
+            textBox.dispatchEvent(new Event('input'));
+            commentContainer.after(textBoxWrapper);
+
+            this.style.display = 'none';
+            cancelButton.style.display = 'inline-block';
+        });
+    });
+
+    document.querySelectorAll('.cancel-btn').forEach(cancelButton => {
+        cancelButton.addEventListener('click', resetCommentForm);
+    });
+
+    commentForm.addEventListener('submit', function (event) {
+        event.preventDefault();
+
+        const name = document.querySelector('input[name="name"]').value.trim();
+        const comment = document.querySelector('textarea[name="comment"]').value.trim();
+        const currentMode = document.getElementById('current-mode').value;
+        const commentId = document.getElementById('comment-id').value;
+
+        if (!name || !comment) {
+            alertError('Oops...', 'Name field and comment field are required');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('name', name);
+        formData.append('comment', comment);
+
+        if (currentMode === 'add') {
+            formData.append('website', document.getElementById('commentWebsite').value);
+            formData.append('turnstile_token', turnstile.getResponse(document.getElementById('turnstileComment')));
+
+            fetch(`/add-comment/${resourceId}/`, {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrfToken
+                },
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alertSuccess('Comment Added', data.message);
+                    location.reload();
+                    return;
+                }
+
+                alertError('Error ', data.message);
+                turnstile.reset(document.getElementById('turnstileComment'));
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alertError('Oops', 'An unexpected error occurred. Please try again.');
+                turnstile.reset(document.getElementById('turnstileComment'));
+            });
+
+            return;
+        }
+
+        fetch(`/edit_comment/${commentId}/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                const commentRow = document.getElementById(`comment-${commentId}`);
+                if (commentRow) {
+                    commentRow.querySelector('.comment-by').textContent = name;
+                    commentRow.querySelector('.comment-content').textContent = comment;
+                }
+
+                resetCommentForm();
+                Swal.fire({
+                    icon: 'success',
+                    title: 'Successful',
+                    showConfirmButton: false,
+                    timer: 800
+                });
+                return;
+            }
+
+            alertError('Oops...', data.message);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alertError('Oops', 'An unexpected error occurred. Please try again.');
+        });
+    });
+});
+</script>
+{% endblock script %}

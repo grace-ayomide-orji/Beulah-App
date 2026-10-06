@@ -12,7 +12,7 @@ from beulah_pkg import app, csrf, limiter
 from beulah_pkg.spam_defense import is_honeypot_triggered, verify_turnstile
 from beulah_pkg.availability_helpers import get_available_slots, is_slot_available
 from beulah_pkg.models import db, Booker, Booking, RecurringSeries, Donation
-from beulah_pkg.booking_emails import send_booking_confirmation, send_counselor_notification, send_donation_receipt
+from beulah_pkg.booking_emails import send_booking_confirmation, send_booking_rescheduled_confirmation, send_counselor_notification, send_donation_receipt
 from beulah_pkg.google_calendar import create_calendar_event, delete_calendar_event, update_calendar_event
 
 
@@ -301,7 +301,10 @@ def submit_booking():
         send_booking_confirmation(first)
         send_counselor_notification('created', first)
     except Exception:
-        pass  # booking already succeeded — a failed email shouldn't fail the request
+        logger.exception(
+            'Failed to send booking confirmation emails for booking %s.',
+            first.booking_id
+        )
 
     return jsonify({
         'success': True,
@@ -350,30 +353,81 @@ def manage_reschedule():
     except ValueError:
         return jsonify({'success': False, 'message': 'Invalid date or time.'}), 400
 
-    if not is_slot_available(new_date, new_start):
+    now_wat = _now_wat_naive()
+    if datetime.combine(new_date, new_start) <= now_wat:
+        return jsonify({'success': False, 'message': 'Please choose a future appointment time.'}), 400
+
+    if not is_slot_available(new_date, new_start, exclude_booking_id=booking.booking_id):
         return jsonify({'success': False, 'message': 'That slot is no longer available.'}), 409
  
     new_end = (datetime.combine(new_date, new_start) + timedelta(minutes=SESSION_DURATION_MINUTES)).time()
+    old_date = booking.booking_date
+    old_start = booking.booking_start_time
+    old_end = booking.booking_end_time
+    calendar_event_id = booking.booking_calendar_event_id
+    meet_link = booking.booking_meet_link
  
     try:
-        update_calendar_event(
-            booking.booking_calendar_event_id,
-            date_str=new_date.isoformat(),
-            start_time_str=new_start.strftime('%H:%M'),
-            end_time_str=new_end.strftime('%H:%M')
-        )
+        if calendar_event_id:
+            update_calendar_event(
+                calendar_event_id,
+                date_str=new_date.isoformat(),
+                start_time_str=new_start.strftime('%H:%M'),
+                end_time_str=new_end.strftime('%H:%M')
+            )
+        else:
+            calendar_result = create_calendar_event(
+                date_str=new_date.isoformat(),
+                start_time_str=new_start.strftime('%H:%M'),
+                end_time_str=new_end.strftime('%H:%M'),
+                client_email=booking.booker.booker_email,
+                client_name=booking.booker.booker_name,
+                description=booking.booking_reason or ''
+            )
+            calendar_event_id = calendar_result.get('event_id')
+            meet_link = calendar_result.get('meet_link')
+            if not calendar_event_id:
+                raise RuntimeError('Google Calendar did not return an event ID.')
     except Exception:
-        pass  # calendar update failed — booking reschedule still proceeds below
+        db.session.rollback()
+        logger.exception(
+            'Failed to update Google Calendar event while rescheduling booking %s.',
+            booking.booking_id
+        )
+        return jsonify({'success': False, 'message': 'Could not update Google Calendar. Your booking was not rescheduled.'}), 502
  
     try:
         booking.booking_date = new_date
         booking.booking_start_time = new_start
         booking.booking_end_time = new_end
-        booking.booking_status = 'confirmed'
+        booking.booking_status = 'rescheduled'
+        booking.booking_calendar_event_id = calendar_event_id
+        booking.booking_meet_link = meet_link
         db.session.commit()
     except Exception:
         db.session.rollback()
         return jsonify({'success': False, 'message': 'Something went wrong. Please try again.'}), 500
+
+    try:
+        send_booking_rescheduled_confirmation(
+            booking,
+            old_date=old_date,
+            old_start=old_start,
+            old_end=old_end
+        )
+    except Exception:
+        logger.exception(
+            'Failed to send client reschedule email for booking %s.',
+            booking.booking_id
+        )
+
+    try:
+        send_counselor_notification('rescheduled', booking)
+    except Exception:
+        logger.exception(
+            'Failed to send counselor reschedule email for booking %s.',
+            booking.booking_id
+        )
 
     return jsonify({'success': True, 'message': 'Booking rescheduled successfully.', 'booking': _serialize_booking(booking)})
 
@@ -401,8 +455,13 @@ def manage_cancel():
  
     try:
         delete_calendar_event(booking.booking_calendar_event_id)
+        booking.booking_calendar_event_id = None
+        booking.booking_meet_link = None
     except Exception:
-        pass  # calendar deletion failed — cancellation still proceeds below
+        logger.exception(
+            'Failed to delete Google Calendar event while cancelling booking %s.',
+            booking.booking_id
+        )
 
     try:
         booking.booking_status = 'cancelled'
@@ -414,7 +473,10 @@ def manage_cancel():
     try:
         send_counselor_notification('cancelled', booking)
     except Exception:
-        pass  # cancellation already succeeded — a failed email shouldn't fail the request
+        logger.exception(
+            'Failed to send cancellation notification for booking %s.',
+            booking.booking_id
+        )
 
     return jsonify({'success': True, 'message': 'Booking cancelled.'})
 
@@ -544,9 +606,15 @@ def _verify_paystack_transaction(donation):
             try:
                 send_donation_receipt(donation)
             except Exception:
-                pass
+                logger.exception(
+                    'Failed to send Paystack donation receipt for donation %s.',
+                    donation.donation_id
+                )
     except Exception:
-        pass
+        logger.exception(
+            'Failed to verify Paystack transaction for donation %s.',
+            donation.donation_id
+        )
 
 
 def _verify_stripe_session(donation):
@@ -558,9 +626,15 @@ def _verify_stripe_session(donation):
             try:
                 send_donation_receipt(donation)
             except Exception:
-                pass
+                logger.exception(
+                    'Failed to send Stripe donation receipt for donation %s.',
+                    donation.donation_id
+                )
     except Exception:
-        pass
+        logger.exception(
+            'Failed to verify Stripe session for donation %s.',
+            donation.donation_id
+        )
 
 
 @app.route('/book/donate/success/')
@@ -603,7 +677,10 @@ def paystack_webhook():
             try:
                 send_donation_receipt(donation)
             except Exception:
-                pass
+                logger.exception(
+                    'Failed to send Paystack webhook donation receipt for donation %s.',
+                    donation.donation_id
+                )
 
     return jsonify({'received': True})
 
@@ -628,7 +705,10 @@ def stripe_webhook():
             try:
                 send_donation_receipt(donation)
             except Exception:
-                pass
+                logger.exception(
+                    'Failed to send Stripe webhook donation receipt for donation %s.',
+                    donation.donation_id
+                )
 
     if event['type'] == 'checkout.session.expired':
         session_obj = event['data']['object']
@@ -638,3 +718,4 @@ def stripe_webhook():
             db.session.commit()
 
     return jsonify({'received': True})
+

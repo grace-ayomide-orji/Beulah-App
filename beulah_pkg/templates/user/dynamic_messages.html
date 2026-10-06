@@ -22,9 +22,36 @@
     </div>
 
 
-    <div class="row reading-resource-parent" data-aos="fade-up">
-        <div class="col">{{resource.resource_body | safe}}</div>
-    </div>
+    {% set article_share_url = url_for('dynamic_slides', id=resource.resource_id, _external=True) if resource.resource_type == 'slide' else url_for('dynamic_messages', id=resource.resource_id, _external=True) %}
+    {% set article_date = resource.resource_published_date or resource.resource_date %}
+    <main class="row reading-resource-parent article-detail-wrapper" data-aos="fade-up">
+        <article class="col article-detail">
+            <div class="article-detail-meta-share">
+                <div class="blog-article-meta">
+                    {% if article_date %}
+                        <span>{{ article_date.strftime('%B %d, %Y') }}</span>
+                    {% endif %}
+                </div>
+
+                <button
+                    type="button"
+                    class="article-share-button"
+                    aria-label="Share article"
+                    title="Share"
+                    data-share-article
+                    data-share-title="{{ resource.resource_title }}"
+                    data-share-url="{{ article_share_url }}"
+                >
+                    <i class="fa-solid fa-share-nodes"></i>
+                    <span>Share</span>
+                </button>
+            </div>
+
+            <div class="article-body-content blog-article-content" data-article-body>
+                {{resource.resource_body | safe}}
+            </div>
+        </article>
+    </main>
 
 
 
@@ -110,7 +137,8 @@
 
 {% endblock content %}
 {% block script %}
-<script>
+<script nonce="{{ csp_nonce }}" src="{{url_for('static', filename='javascript_folder/article_detail.js')}}"></script>
+<script nonce="{{ csp_nonce }}">
  document.addEventListener('DOMContentLoaded', function () {
 
 

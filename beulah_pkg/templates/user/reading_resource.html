@@ -16,26 +16,29 @@
     </div>
 
 
-    <div class="row resources-container" data-aos="fade-up">
+    <section class="resources-container" data-aos="fade-up">
 
         {% if reading_resources %}
             {% for resource, comment_count  in reading_resources %}
-                <div class="col-12 mt-5">
-                    <div class="sermon-card">
-                        <div class="text-section">
-                            <h3>{{resource.resource_title}}</h3>              
-                            <p><span class="date-title">Date:</span> <span class="date">{{resource.resource_date.strftime('%d-%b-%Y')}}</span></p>
-                            <p>
-                                {{resource.resource_body[0:280] | safe}}...
-                            </p>
-                            <div class="mt-3">
-                                <a href="{{url_for('dynamic_messages', id=resource.resource_id)}}" class="read-more">Read More</a>
-                                <span class="comment-icon"><i class="fa fa-comment"></i> {% if comment_count %} {{comment_count}} {% else %} No Comments {% endif %}</span>
-                            </div>
+                <article class="sermon-card mt-5">
+                    <div class="text-section">
+                        <h3>{{resource.resource_title}}</h3>              
+                        <p><span class="date">{{resource.resource_date.strftime('%b %d, %Y')}}</span></p>
+                        <p>
+                            {{resource.resource_body[0:280] | safe}}...
+                        </p>
+                        <div class="mt-3">
+                            <a href="{{url_for('dynamic_messages', id=resource.resource_id)}}" class="read-more">Read More</a>
+                            <span class="comment-icon"><i class="fa fa-comment"></i> {% if comment_count %} {{comment_count}} {% else %} No Comments {% endif %}</span>
                         </div>
                     </div>
-                </div>
+                </article>
             {% endfor %}
+        {% else %}
+            <div class="resource-empty-state">
+                <h2>No messages yet</h2>
+                <p>New messages will appear here as they become available.</p>
+            </div>
         {% endif %}
         
 
@@ -90,7 +93,7 @@
             </ul>
             </nav>
         </div>
-    </div>
+    </section>
 
 
 

@@ -1,0 +1,286 @@
+{% extends 'admin/admin_template.html'%}
+
+{% block title %}Blog Posts - Beulah Foundation for Christ{% endblock title %}
+
+{% block content %}
+    <div class="admin-table-actions">
+        <a href="{{url_for('add_blog_resource')}}" class="link-1"><i class="fa-solid fa-plus"></i> New Blog Post</a>
+    </div>
+
+    <div class="admin-table-card">
+        <div class="admin-table-card-header">
+            <div>
+                <h2 class="admin-table-card-title">Blog Posts</h2>
+                <p class="admin-table-card-description">Write, preview, publish, draft, and manage website articles.</p>
+            </div>
+        </div>
+
+        <div class="row filter-parent-container">
+            <div class="col-12 filter-container">
+                <div class="filter-section">
+                    <div class="select-style-1">
+                        <div class="select-position">
+                            <select class="form-select" name="status">
+                                <option value="all" {% if request.args.get('status', 'all') == 'all' %}selected{% endif %}>All Statuses</option>
+                                <option value="draft" {% if request.args.get('status') == 'draft' %}selected{% endif %}>Draft</option>
+                                <option value="published" {% if request.args.get('status') == 'published' %}selected{% endif %}>Published</option>
+                                <option value="suspended" {% if request.args.get('status') == 'suspended' %}selected{% endif %}>Suspended</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="select-style-1">
+                        <div class="select-position">
+                            <select class="form-select months" name="month">
+                                <option value="all" {% if request.args.get('month', 'all') == 'all' %}selected{% endif %}>All Months</option>
+                                <option value="1" {% if request.args.get('month') == '1' %}selected{% endif %}>January</option>
+                                <option value="2" {% if request.args.get('month') == '2' %}selected{% endif %}>February</option>
+                                <option value="3" {% if request.args.get('month') == '3' %}selected{% endif %}>March</option>
+                                <option value="4" {% if request.args.get('month') == '4' %}selected{% endif %}>April</option>
+                                <option value="5" {% if request.args.get('month') == '5' %}selected{% endif %}>May</option>
+                                <option value="6" {% if request.args.get('month') == '6' %}selected{% endif %}>June</option>
+                                <option value="7" {% if request.args.get('month') == '7' %}selected{% endif %}>July</option>
+                                <option value="8" {% if request.args.get('month') == '8' %}selected{% endif %}>August</option>
+                                <option value="9" {% if request.args.get('month') == '9' %}selected{% endif %}>September</option>
+                                <option value="10" {% if request.args.get('month') == '10' %}selected{% endif %}>October</option>
+                                <option value="11" {% if request.args.get('month') == '11' %}selected{% endif %}>November</option>
+                                <option value="12" {% if request.args.get('month') == '12' %}selected{% endif %}>December</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="select-style-1">
+                        <div class="select-position">
+                            <select class="form-select sort-order" name="sortOrder">
+                                <option value="desc" {{ get_selected_option('desc') }}>Desc</option>
+                                <option value="asc" {{ get_selected_option('asc') }}>Asc</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button id="filter-blog-resources" class="butt-1">Filter</button>
+                </div>
+
+                <div class="search-filter-form">
+                    <form role="search" id="blogs-search-form">
+                        <input
+                            type="search"
+                            placeholder="Search by title..."
+                            name="title"
+                            aria-label="Search blog posts"
+                            id="search-bar"
+                            value="{{ request.args.get('title', '') }}"
+                        >
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <div class="col-12 table-wrapper">
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th class="loop-num"><h5>#</h5></th>
+                            <th><h5>Title</h5></th>
+                            <th><h5>Comments</h5></th>
+                            <th><h5>Status</h5></th>
+                            <th><h5>Published</h5></th>
+                            <th><h5>Updated</h5></th>
+                            <th class="sticky-action"><h5>Actions</h5></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% if blog_resources %}
+                            {% for resource, comment_count in blog_resources %}
+                                <tr id="blog-{{ resource.resource_id }}">
+                                    <td class="loop-num">
+                                        <p>{{ (pagination.page - 1) * pagination.per_page + loop.index }}</p>
+                                    </td>
+                                    <td class="min-width special-td">
+                                        <p>
+                                            {% if resource.resource_title|length > 34 %}
+                                                {{ resource.resource_title[0:34] }}...
+                                            {% else %}
+                                                {{ resource.resource_title }}
+                                            {% endif %}
+                                        </p>
+                                    </td>
+                                    <td class="min-width">
+                                        <p>
+                                            <i class="fa-solid fa-comment"></i>{% if comment_count != 0 %} {{ comment_count }} {% else %} No comments {% endif %}
+                                        </p>
+                                    </td>
+                                    <td class="min-width">
+                                        <p><span class="badge blog-status-badge blog-status-{{ resource.resource_status }}">{{ resource.resource_status|title }}</span></p>
+                                    </td>
+                                    <td class="min-width">
+                                        <p>{% if resource.resource_published_date %}{{ resource.resource_published_date.strftime('%d-%b-%Y') }}{% else %}-{% endif %}</p>
+                                    </td>
+                                    <td class="min-width">
+                                        <p>{{ resource.resource_updated_date.strftime('%d-%b-%Y') }}</p>
+                                    </td>
+                                    <td class="action sticky-action">
+                                        <a class="edit-action" href="{{ url_for('edit_blog_resource', id=resource.resource_id) }}" title="Edit"><i class="fa-regular fa-pen-to-square"></i></a>
+                                        <a class="view-action" href="{{ url_for('admin_blog_preview', id=resource.resource_id) }}" target="_blank" rel="noopener noreferrer" title="Preview"><i class="fa-regular fa-eye"></i></a>
+                                        {% if resource.resource_status == 'published' %}
+                                            <button type="button" class="blog-copy-action copy-action" data-copy-type="link" data-url="{{ url_for('admin_blog_copy_data', id=resource.resource_id) }}" title="Copy link"><i class="fa-regular fa-copy"></i></button>
+                                        {% endif %}
+                                        <button type="button" class="blog-copy-action copy-action" data-copy-type="content" data-url="{{ url_for('admin_blog_copy_data', id=resource.resource_id) }}" title="Copy content"><i class="fa-regular fa-clipboard"></i></button>
+                                        {% if resource.resource_status == 'published' %}
+                                            <button type="button" class="blog-status-action draft-action" data-action="unpublish" data-id="{{ resource.resource_id }}" title="Move to draft"><i class="fa-solid fa-eye-slash"></i></button>
+                                        {% else %}
+                                            <button type="button" class="blog-status-action publish-action" data-action="publish" data-id="{{ resource.resource_id }}" title="Publish"><i class="fa-solid fa-paper-plane"></i></button>
+                                        {% endif %}
+                                        <button type="button" class="blog-delete-action delete-action" data-id="{{ resource.resource_id }}" title="Delete"><i class="fa-regular fa-trash-can"></i></button>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="7" class="text-center"><p>No Blog Posts Found</p></td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% set pagination_label = 'blog posts' %}
+        {% set pagination_query = 'sortOrder=' ~ request.args.get('sortOrder', 'desc') ~ '&month=' ~ request.args.get('month', 'all') ~ '&status=' ~ request.args.get('status', 'all') ~ '&title=' ~ request.args.get('title', '') %}
+        {% include 'admin/_pagination_footer.html' %}
+    </div>
+{% endblock content %}
+
+
+{% block script %}
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function () {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const baseUrl = "{{ base_url }}";
+
+    function currentFilterUrl() {
+        const sortOrder = document.querySelector('select[name="sortOrder"]').value;
+        const month = document.querySelector('select[name="month"]').value;
+        const status = document.querySelector('select[name="status"]').value;
+        const titleQuery = document.querySelector('input[name="title"]').value;
+        return `${baseUrl}?page=1&sortOrder=${encodeURIComponent(sortOrder)}&month=${encodeURIComponent(month)}&status=${encodeURIComponent(status)}&title=${encodeURIComponent(titleQuery)}`;
+    }
+
+    document.getElementById('filter-blog-resources').addEventListener('click', function () {
+        window.location.href = currentFilterUrl();
+    });
+
+    document.getElementById('blogs-search-form').addEventListener('submit', function (event) {
+        event.preventDefault();
+        window.location.href = currentFilterUrl();
+    });
+
+    function copyText(value, label) {
+        const text = value || '';
+        if (!text.trim()) {
+            alertError('Error', `No ${label.toLowerCase()} available to copy.`);
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text)
+                .then(() => alertSuccess2('Copied', `${label} copied successfully.`))
+                .catch(() => fallbackCopyText(text, label));
+            return;
+        }
+        fallbackCopyText(text, label);
+    }
+
+    function fallbackCopyText(value, label) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        alertSuccess2('Copied', `${label} copied successfully.`);
+    }
+
+    document.querySelectorAll('.blog-copy-action').forEach(button => {
+        button.addEventListener('click', function () {
+            const copyType = this.dataset.copyType;
+            fetch(this.dataset.url)
+                .then(response => response.json())
+                .then(data => {
+                    if (!data.success) {
+                        alertError('Error', data.message);
+                        return;
+                    }
+                    if (copyType === 'link') {
+                        copyText(data.public_url, 'Link');
+                        return;
+                    }
+                    copyText(data.content, 'Content');
+                })
+                .catch(() => alertError('Error', 'Something went wrong. Please try again.'));
+        });
+    });
+
+    document.querySelectorAll('.blog-status-action').forEach(button => {
+        button.addEventListener('click', function () {
+            const action = this.dataset.action;
+            const endpoint = action === 'publish' ? "{{ url_for('publish_blog_resource') }}" : "{{ url_for('unpublish_blog_resource') }}";
+            fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken
+                },
+                body: JSON.stringify({ id: this.dataset.id })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alertSuccess2('Successful', data.message);
+                    setTimeout(() => window.location.reload(), 700);
+                    return;
+                }
+                alertError('Error', data.message);
+            })
+            .catch(() => alertError('Error', 'Something went wrong. Please try again.'));
+        });
+    });
+
+    document.querySelectorAll('.blog-delete-action').forEach(button => {
+        button.addEventListener('click', function () {
+            const blogId = this.dataset.id;
+            confirmDelete('Are you sure you want to delete this blog post?').then(confirmed => {
+                if (!confirmed) {
+                    return;
+                }
+
+                fetch("{{ url_for('delete_blog_resource') }}", {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken
+                    },
+                    body: JSON.stringify({ id: blogId })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alertSuccess2('Successful', data.message);
+                        const row = document.getElementById(`blog-${blogId}`);
+                        if (row) {
+                            row.remove();
+                        }
+                        return;
+                    }
+                    alertError('Error', data.message);
+                })
+                .catch(() => alertError('Error', 'Something went wrong. Please try again.'));
+            });
+        });
+    });
+});
+</script>
+{% endblock script %}

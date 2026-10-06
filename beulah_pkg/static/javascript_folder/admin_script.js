@@ -76,13 +76,15 @@ document.addEventListener("DOMContentLoaded", function() {
     
     // Get the current URL path
     const currentPath = window.location.pathname;
+    const activeNavKey = document.body.dataset.activeNav;
 
     // Select all navigation links
     const navLinks = document.querySelectorAll('.nav-link');
 
     // Loop through each link
     navLinks.forEach(link => {
-      if (link.getAttribute('href') === currentPath) {
+      const linkKey = link.dataset.navKey;
+      if ((activeNavKey && linkKey === activeNavKey) || (!activeNavKey && link.getAttribute('href') === currentPath)) {
 
         link.classList.add('active');
       } else {

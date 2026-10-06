@@ -1,0 +1,256 @@
+{% extends 'admin/admin_template.html'%}
+
+{% block title %}{% if resource %}Edit Blog Post{% else %}New Blog Post{% endif %} - Beulah Foundation for Christ{% endblock title %}
+
+
+{% block content %}
+<div class="blog-editor-shell">
+    <form id="blogForm" method="POST" action="{{ editor_action }}" enctype="multipart/form-data">
+        <input type="hidden" name="action" id="blogAction" value="{% if resource %}keep{% else %}draft{% endif %}">
+        <input type="hidden" name="remove_featured_image" id="removeFeaturedImage" value="0">
+
+        <div class="blog-editor-topbar">
+            <a href="{{ url_for('admin_blog_resources') }}" class="blog-editor-back" title="Back to blog posts">
+                <i class="fa-solid fa-arrow-left"></i>
+            </a>
+
+            <div class="blog-editor-state">
+                <span class="blog-save-dot"></span>
+                <span id="blogSaveStatus">{% if resource %}{{ resource.resource_status|title }}{% else %}Draft{% endif %}</span>
+            </div>
+
+            <div class="blog-editor-actions">
+                <button type="button" class="link-2" id="saveDraftBtn">Save Draft</button>
+                <button type="button" class="link-2" id="previewBlogBtn" {% if not preview_url %}data-needs-save="1"{% endif %}>
+                    <i class="fa-regular fa-eye"></i> Preview
+                </button>
+                {% if resource and resource.resource_status == 'published' %}
+                    <button type="button" class="butt-2 danger-btn" id="unpublishBlogBtn">Move to Draft</button>
+                    <button type="button" class="butt-2" id="saveBlogBtn">Save Changes</button>
+                {% else %}
+                    <button type="button" class="butt-2" id="publishBlogBtn"><i class="fa-solid fa-paper-plane"></i> Publish</button>
+                {% endif %}
+            </div>
+        </div>
+
+        <div class="blog-editor-layout">
+            <main class="blog-writing-panel">
+                <input
+                    type="text"
+                    class="blog-title-input"
+                    id="title"
+                    name="title"
+                    placeholder="Title"
+                    value="{% if resource %}{{ resource.resource_title }}{% endif %}"
+                    autocomplete="off"
+                >
+
+                <div class="input-style-1">
+                <label for="blogContentEditor">Blog Content</label>
+                {% set editor_id = 'blogContentEditor' %}
+                {% set editor_content = resource.resource_body if resource else '' %}
+                {% set editor_placeholder = 'Start writing...' %}
+                {% set editor_upload_url = url_for('admin_blog_editor_image_upload') %}
+                {% include 'admin/_tiptap_editor.html' %}
+                </div>
+            </main>
+
+            <aside class="blog-settings-panel">
+                <div class="blog-settings-heading">
+                    <h2>Post settings</h2>
+                    <p>Control metadata, discovery, and publishing details.</p>
+                </div>
+
+                <div class="select-style-1 mb-4">
+                    <label>Status</label>
+                    <div class="select-position">
+                        <select class="form-select sort-order" name="status_display" disabled>
+                            <option>{% if resource %}{{ resource.resource_status|title }}{% else %}Draft{% endif %}</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="input-style-1">
+                    <label for="category">Category</label>
+                    <input type="text" id="category" name="category" value="{% if resource and resource.resource_category %}{{ resource.resource_category }}{% endif %}" placeholder="Faith, Teaching, News">
+                </div>
+
+                <div class="input-style-1">
+                    <label for="featured_image">Featured image</label>
+                    <input type="file" id="featured_image" name="featured_image" accept="image/jpeg,image/png,image/webp">
+                    {% if featured_image_url %}
+                        <div class="blog-featured-preview" id="featuredPreview">
+                            <img src="{{ featured_image_url }}" alt="Current featured image">
+                            <button type="button" id="removeFeaturedImageBtn"><i class="fa-regular fa-trash-can"></i> Remove</button>
+                        </div>
+                    {% endif %}
+                </div>
+
+            </aside>
+        </div>
+    </form>
+</div>
+{% endblock content %}
+
+{% block script %}
+<script nonce="{{ csp_nonce }}" type="module" src="{{url_for('static', filename='javascript_folder/tiptap_editor.js')}}"></script>
+<script nonce="{{ csp_nonce }}">
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('blogForm');
+    const formActionUrl = form.getAttribute('action');
+    const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+    const actionInput = document.getElementById('blogAction');
+    const saveStatus = document.getElementById('blogSaveStatus');
+    const titleInput = document.getElementById('title');
+    const saveDraftBtn = document.getElementById('saveDraftBtn');
+    const saveBlogBtn = document.getElementById('saveBlogBtn');
+    const publishBlogBtn = document.getElementById('publishBlogBtn');
+    const unpublishBlogBtn = document.getElementById('unpublishBlogBtn');
+    const previewBlogBtn = document.getElementById('previewBlogBtn');
+    const removeFeaturedImageBtn = document.getElementById('removeFeaturedImageBtn');
+    const removeFeaturedImageInput = document.getElementById('removeFeaturedImage');
+    const previewUrl = "{{ preview_url or '' }}";
+
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function (char) {
+            return {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            }[char];
+        });
+    }
+
+    function copyText(value, label) {
+        const text = value || '';
+        if (!text.trim()) {
+            alertError('Error', `No ${label} available to copy.`);
+            return;
+        }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text)
+                .then(() => alertSuccess2('Copied', `${label} copied successfully.`))
+                .catch(() => fallbackCopyText(text, label));
+            return;
+        }
+        fallbackCopyText(text, label);
+    }
+
+    function fallbackCopyText(value, label) {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+        alertSuccess2('Copied', `${label} copied successfully.`);
+    }
+
+    function showSavedMessage(data, action, editorText) {
+        const isPublished = action === 'publish' && data.public_url;
+        Swal.fire({
+            title: 'Successful',
+            text: isPublished ? undefined : data.message,
+            html: isPublished ? `
+                <p>${escapeHtml(data.message)}</p>
+                <div class="blog-copy-modal-actions">
+                    <button type="button" class="link-2" id="copyPublishedLinkBtn"><i class="fa-regular fa-copy"></i> Copy Link</button>
+                    <button type="button" class="link-2" id="copyPublishedContentBtn"><i class="fa-regular fa-clipboard"></i> Copy Content</button>
+                </div>
+            ` : undefined,
+            icon: 'success',
+            customClass: {
+                title: 'my-swal-title',
+                confirmButton: 'my-swal-confirm-btn',
+            },
+            didOpen: () => {
+                const copyLinkBtn = document.getElementById('copyPublishedLinkBtn');
+                const copyContentBtn = document.getElementById('copyPublishedContentBtn');
+                if (copyLinkBtn) {
+                    copyLinkBtn.addEventListener('click', () => copyText(data.public_url, 'Link'));
+                }
+                if (copyContentBtn) {
+                    copyContentBtn.addEventListener('click', () => copyText(editorText, 'Content'));
+                }
+            }
+        }).then(() => {
+            window.location.href = data.redirect_url;
+        });
+    }
+
+    if (removeFeaturedImageBtn) {
+        removeFeaturedImageBtn.addEventListener('click', function () {
+            removeFeaturedImageInput.value = '1';
+            const preview = document.getElementById('featuredPreview');
+            if (preview) {
+                preview.remove();
+            }
+        });
+    }
+
+    function submitBlog(action, afterSave) {
+        actionInput.value = action;
+        const editorData = window.BeulahTiptap ? window.BeulahTiptap.getData('blogContentEditor') : { html: '', json: null, text: '' };
+
+        if (action === 'publish' && (!titleInput.value.trim() || !editorData.text.trim())) {
+            alertError('Error', 'Title and content are required before publishing.');
+            return;
+        }
+
+        const formData = new FormData(form);
+        formData.set('content', editorData.html);
+        formData.set('content_json', JSON.stringify(editorData.json || {}));
+
+        saveStatus.textContent = 'Saving...';
+
+        fetch(formActionUrl, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken },
+            body: formData
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (!data.success) {
+                throw new Error(data.message || 'Unable to save blog post.');
+            }
+            saveStatus.textContent = 'Saved';
+            if (afterSave === 'preview') {
+                window.open(data.preview_url || previewUrl || data.redirect_url, '_blank', 'noopener');
+                if (!previewUrl && data.redirect_url) {
+                    window.location.href = data.redirect_url;
+                }
+                return;
+            }
+            showSavedMessage(data, action, editorData.text);
+        })
+        .catch(error => {
+            saveStatus.textContent = 'Not saved';
+            alertError('Error', error.message);
+        });
+    }
+
+    saveDraftBtn.addEventListener('click', () => submitBlog('draft'));
+    if (saveBlogBtn) {
+        saveBlogBtn.addEventListener('click', () => submitBlog('keep'));
+    }
+    if (publishBlogBtn) {
+        publishBlogBtn.addEventListener('click', () => submitBlog('publish'));
+    }
+    if (unpublishBlogBtn) {
+        unpublishBlogBtn.addEventListener('click', () => submitBlog('unpublish'));
+    }
+    previewBlogBtn.addEventListener('click', function () {
+        if (previewUrl) {
+            window.open(previewUrl, '_blank', 'noopener');
+            return;
+        }
+        submitBlog('draft', 'preview');
+    });
+});
+</script>
+{% endblock script %}

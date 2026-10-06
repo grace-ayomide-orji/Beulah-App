@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="{{url_for('static', filename='assets/bootstrap/css/bootstrap.min.css')}}" crossorigin="anonymous">
     <link rel="stylesheet" href="{{url_for('static', filename='assets/fa/css/all.min.css')}}" crossorigin="anonymous">
     <link rel="stylesheet" type="text/css" href="{{url_for('static',filename='css_folder/admin_stylesheet.min.css')}}">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11.14.1/dist/sweetalert2.min.css">
 </head>
 
 <body>
@@ -35,18 +35,41 @@
                     </div>
 
                     <button type="submit" class="submit" id="mfa-submit-btn">Verify</button>
+                    <div class="mfa-resend-row">
+                        <span>Did not receive the code?</span>
+                        <button type="button" class="mfa-resend-btn" id="mfa-resend-btn" data-url="{{ url_for('admin_mfa_resend') }}">Resend code</button>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
 
-    <script defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
-    <script defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
-    <script>
+    <script nonce="{{ csp_nonce }}" defer src="https://cdn.jsdelivr.net/npm/sweetalert2@11.0.20/dist/sweetalert2.min.js"></script>
+    <script nonce="{{ csp_nonce }}" defer src="{{url_for('static', filename='javascript_folder/admin_script.min.js')}}"></script>
+    <script nonce="{{ csp_nonce }}">
         document.addEventListener('DOMContentLoaded', function(){
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
             const mfaForm = document.getElementById('mfa-form');
             const submitBtn = document.getElementById('mfa-submit-btn');
+            const resendBtn = document.getElementById('mfa-resend-btn');
+
+            function startResendCooldown(seconds = 60) {
+                let remaining = seconds;
+                resendBtn.disabled = true;
+                resendBtn.textContent = `Resend in ${remaining}s`;
+
+                const timer = setInterval(() => {
+                    remaining -= 1;
+                    if (remaining <= 0) {
+                        clearInterval(timer);
+                        resendBtn.disabled = false;
+                        resendBtn.textContent = 'Resend code';
+                        return;
+                    }
+
+                    resendBtn.textContent = `Resend in ${remaining}s`;
+                }, 1000);
+            }
 
             mfaForm.addEventListener('submit', function(event){
                 event.preventDefault();
@@ -104,6 +127,57 @@
                 .catch(() => {
                     submitBtn.disabled = false;
                     submitBtn.textContent = 'Verify';
+
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: 'An unexpected error occurred. Please try again.'
+                    });
+                });
+            });
+
+            resendBtn.addEventListener('click', function(){
+                if (resendBtn.disabled) return;
+
+                resendBtn.disabled = true;
+                resendBtn.textContent = 'Sending...';
+
+                fetch(resendBtn.dataset.url, {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': csrfToken
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        Swal.fire({
+                            icon: 'success',
+                            text: data.message,
+                            timer: 1400,
+                            showConfirmButton: false
+                        });
+
+                        startResendCooldown();
+                        return;
+                    }
+
+                    resendBtn.disabled = false;
+                    resendBtn.textContent = 'Resend code';
+
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: data.message
+                    }).then(() => {
+                        if (data.redirect_url) {
+                            window.location.href = data.redirect_url;
+                        }
+                    });
+                })
+                .catch(() => {
+                    resendBtn.disabled = false;
+                    resendBtn.textContent = 'Resend code';
 
                     Swal.fire({
                         icon: 'error',

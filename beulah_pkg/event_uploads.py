@@ -1,9 +1,11 @@
 import os
+import logging
 import uuid
 from werkzeug.utils import secure_filename
 
 ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'webp'}
 MAX_FLYER_SIZE_BYTES = 5 * 1024 * 1024  # 5MB
+logger = logging.getLogger(__name__)
 
 
 def _allowed_file(filename):
@@ -54,4 +56,4 @@ def delete_event_flyer(filename, upload_folder):
         if os.path.exists(filepath):
             os.remove(filepath)
     except OSError:
-        pass
+        logger.exception('Failed to delete event flyer %s.', filepath)

@@ -1,0 +1,94 @@
+{% extends "user/user_template.html" %}
+
+{% block title %} Blog - Beulah Foundation for Christ{% endblock %}
+
+{% block content %}
+<div class="row">
+    {% include "user/navigation.html" %}
+
+    <div class="col-12 pages-banner">
+        <div class="banner-heading">
+            <h1>Blog</h1>
+        </div>
+    </div>
+</div>
+
+<section class="blog-list-section resources-container" data-aos="fade-up">
+    <div class="blog-list-grid">
+        {% if blog_resources %}
+            {% for resource, comment_count in blog_resources %}
+                {% set image_path = blog_image_url(resource) %}
+                <article class="sermon-card blog-card mt-5">
+                    {% if image_path %}
+                        <img class="blog-card-image" src="{{ url_for('static', filename=image_path) }}" alt="{{ resource.resource_title }}">
+                    {% else %}
+                        <div class="blog-card-image blog-card-placeholder">
+                            <i class="fa-solid fa-blog"></i>
+                        </div>
+                    {% endif %}
+
+                    <div class="text-section blog-card-body">
+                        <div class="blog-card-meta">
+                            {% if resource.resource_category %}
+                                <span class="blog-category-pill">{{ resource.resource_category }}</span>
+                            {% endif %}
+                            {% if resource.resource_published_date %}
+                                <span class="date">{{ resource.resource_published_date.strftime('%b %d, %Y') }}</span>
+                            {% endif %}
+                        </div>
+
+                        <h3>{{ resource.resource_title }}</h3>
+                        <p>{{ blog_text_summary(resource, 180) }}</p>
+
+                        <div class="mt-3">
+                            <a class="read-more" href="{{ url_for('blog_detail', slug=resource.resource_slug) }}">Read More</a>
+                            <span class="comment-icon"><i class="fa fa-comment"></i> {% if comment_count %} {{comment_count}} {% else %} No Comments {% endif %}</span>
+                        </div>
+                    </div>
+                </article>
+            {% endfor %}
+        {% else %}
+            <div class="resource-empty-state">
+                <h2>No articles/blogs yet</h2>
+                <p>New articles/blogs will appear here as they become available.</p>
+            </div>
+        {% endif %}
+    </div>
+
+    {% if pagination and pagination.pages > 1 %}
+        <div class="col-12 resource-pagination mt-5">
+            <nav aria-label="Blog pagination">
+                <ul class="pagination justify-content-center">
+                    {% if pagination.has_prev %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ base_url }}?page={{ pagination.prev_num }}"><i class="fa-solid fa-angle-left"></i></a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link"><i class="fa-solid fa-angle-left"></i></span>
+                        </li>
+                    {% endif %}
+
+                    {% for page_num in pagination.iter_pages(left_edge=0, right_edge=0, left_current=0, right_current=0) %}
+                        {% if page_num %}
+                            <li class="page-item {% if page_num == pagination.page %}active{% endif %}">
+                                <a class="page-link" href="{{ base_url }}?page={{ page_num }}">{{ page_num }}</a>
+                            </li>
+                        {% endif %}
+                    {% endfor %}
+
+                    {% if pagination.has_next %}
+                        <li class="page-item">
+                            <a class="page-link" href="{{ base_url }}?page={{ pagination.next_num }}"><i class="fa-solid fa-angle-right"></i></a>
+                        </li>
+                    {% else %}
+                        <li class="page-item disabled">
+                            <span class="page-link"><i class="fa-solid fa-angle-right"></i></span>
+                        </li>
+                    {% endif %}
+                </ul>
+            </nav>
+        </div>
+    {% endif %}
+</section>
+{% endblock content %}

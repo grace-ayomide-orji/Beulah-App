@@ -40,7 +40,7 @@
                                     <span>{{ notification.notification_for[:1] | upper }}</span>
                                 </div>
                         
-                                <a href="javascript:void(0);" class="content">
+                                <a href="#" class="content">
                                     <h6>{{notification.notification_for}}</h6>
                                     <p>
                                         {{notification.notification_message}}
@@ -51,7 +51,7 @@
                         
                             <div class="action">
 
-                                <button class="delete-notification-btn" data-id="{{notification.notification_id}}" title="Delete">
+                                <button class="delete-notification-btn delete-action" data-id="{{notification.notification_id}}" title="Delete">
                                     <i class="fa-regular fa-trash-can"></i>
                                 </button>
                                 <button class="mark-as-read-btn" data-id="{{notification.notification_id}}" title="Mark as read">
@@ -76,8 +76,8 @@
 {% endblock content %}
 
 {% block script %}
-<script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.3/luxon.min.js"></script>
-<script>
+<script nonce="{{ csp_nonce }}" src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.4.3/luxon.min.js"></script>
+<script nonce="{{ csp_nonce }}">
 
 document.addEventListener('DOMContentLoaded', function(){
     

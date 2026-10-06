@@ -99,7 +99,7 @@
                                 <h5>Date</h5>
                             </th>
                             <th class="sticky-action">
-                                <h5>View</h5>
+                                <h5>Actions</h5>
                             </th>
                         </tr>
                     </thead>
@@ -160,8 +160,8 @@
                                         </p>
                                     </td>
 
-                                    <td class="view-action sticky-action">
-                                        <p class="pointer view-audit-log-btn" data-id="{{ audit_log.audit_id }}"><i class="fa-regular fa-eye"></i> View</p>
+                                    <td class="action sticky-action">
+                                        <button type="button" class="view-audit-log-btn view-action" data-id="{{ audit_log.audit_id }}" title="View"><i class="fa-regular fa-eye"></i></button>
                                     </td>
                                 </tr>
                             {% endfor %}
@@ -205,7 +205,7 @@
 
 {% block script %}
 
-<script>
+<script nonce="{{ csp_nonce }}">
 document.addEventListener('DOMContentLoaded', function(){
     const baseUrl = "{{ base_url }}";
     const filterButton = document.getElementById('filter-audit-logs');
