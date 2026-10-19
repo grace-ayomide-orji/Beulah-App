@@ -13,7 +13,8 @@ BLOG_STATUSES = ('draft', 'published', 'suspended', 'unpublished')
 blog_content_cleaner = Cleaner(
     tags=[
         'a', 'blockquote', 'br', 'code', 'div', 'em', 'figcaption', 'figure', 'h1', 'h2',
-        'h3', 'h4', 'hr', 'img', 'li', 'ol', 'p', 'pre', 's', 'span', 'strong', 'u', 'ul'
+        'h3', 'h4', 'hr', 'img', 'li', 'ol', 'p', 'pre', 's', 'span', 'strong', 'sup',
+        'u', 'ul'
     ],
     attributes={
         'a': ['href', 'title', 'target', 'rel'],
@@ -24,10 +25,13 @@ blog_content_cleaner = Cleaner(
         'h3': ['style'],
         'h4': ['style'],
         'blockquote': ['style'],
+        'div': ['style'],
         'span': ['style'],
     },
     protocols=['http', 'https', 'mailto'],
-    css_sanitizer=CSSSanitizer(allowed_css_properties=['text-align']),
+    css_sanitizer=CSSSanitizer(
+        allowed_css_properties=['font-style', 'font-weight', 'text-align', 'text-decoration']
+    ),
     strip=True,
 )
 

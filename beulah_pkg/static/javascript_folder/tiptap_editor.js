@@ -4,6 +4,7 @@ import Underline from 'https://esm.sh/@tiptap/extension-underline@2';
 import Link from 'https://esm.sh/@tiptap/extension-link@2';
 import Image from 'https://esm.sh/@tiptap/extension-image@2';
 import TextAlign from 'https://esm.sh/@tiptap/extension-text-align@2';
+import Superscript from 'https://esm.sh/@tiptap/extension-superscript@2';
 
 const editors = new Map();
 
@@ -109,6 +110,7 @@ function initEditor(editorElement) {
       Link.configure({ openOnClick: false, autolink: true }),
       Image,
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
+      Superscript,
     ],
     content: initialContent || '',
     editorProps: {

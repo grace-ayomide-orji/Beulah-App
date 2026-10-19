@@ -24,6 +24,27 @@ document.addEventListener('DOMContentLoaded', function () {
     return endIndex;
   }
 
+  function markEmptyMessageParagraphs(root) {
+    if (!root || !root.classList.contains('message-article-content')) {
+      return;
+    }
+
+    const meaningfulSelector = 'img, iframe, video, audio, object, embed, svg, hr';
+
+    root.querySelectorAll('p').forEach((paragraph) => {
+      const visibleText = paragraph.textContent.replace(/\u00a0/g, ' ').trim();
+      const meaningfulElement = paragraph.querySelector(meaningfulSelector);
+      const meaningfulLink = Array.from(paragraph.querySelectorAll('a[href]')).some((link) => {
+        const linkText = link.textContent.replace(/\u00a0/g, ' ').trim();
+        return Boolean(linkText || link.querySelector(meaningfulSelector));
+      });
+
+      if (!visibleText && !meaningfulElement && !meaningfulLink) {
+        paragraph.classList.add('article-empty-spacer');
+      }
+    });
+  }
+
   function wrapOpeningText(root, maxChars) {
     if (!root || root.dataset.openingStyled === 'true') {
       return;
@@ -120,7 +141,10 @@ document.addEventListener('DOMContentLoaded', function () {
     alertSuccess('Copied', `${label} copied successfully.`);
   }
 
-  articleBodies.forEach((body) => wrapOpeningText(body, 50));
+  articleBodies.forEach((body) => {
+    markEmptyMessageParagraphs(body);
+    wrapOpeningText(body, 50);
+  });
 
   document.querySelectorAll('[data-share-article]').forEach((button) => {
     button.addEventListener('click', function () {
