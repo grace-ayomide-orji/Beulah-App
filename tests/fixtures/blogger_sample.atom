@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:blogger="http://schemas.google.com/blogger/2018">
+  <id>tag:blogger.com,1999:blog-1</id><title>Test blog</title>
+  <entry>
+    <id>post-1</id><blogger:type>POST</blogger:type><blogger:status>LIVE</blogger:status>
+    <author><name>Author</name><uri>https://old.example</uri></author>
+    <title>First post</title>
+    <content type="html">&lt;h2&gt;Heading&lt;/h2&gt;&lt;p&gt;&lt;b&gt;Bold&lt;/b&gt; and &lt;i&gt;italic&lt;/i&gt;.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;One&lt;/li&gt;&lt;/ul&gt;</content>
+    <blogger:created>2020-01-01T09:00:00Z</blogger:created>
+    <published>2020-01-01T10:00:00.001Z</published><updated>2020-01-02T10:00:00.001Z</updated>
+    <category term="Faith"/><blogger:filename>/2020/01/shared.html</blogger:filename>
+  </entry>
+  <entry>
+    <id>post-2</id><blogger:type>POST</blogger:type><blogger:status>LIVE</blogger:status>
+    <author><name>Author</name><uri>https://old.example</uri></author>
+    <title>Second post</title><content type="html">&lt;p&gt;Second body&lt;/p&gt;</content>
+    <blogger:created>2021-01-01T09:00:00Z</blogger:created>
+    <published>2021-01-01T10:00:00Z</published><updated>2021-01-02T10:00:00Z</updated>
+    <blogger:filename>/2021/01/shared.html</blogger:filename>
+  </entry>
+  <entry>
+    <id>post-trash</id><blogger:type>POST</blogger:type><blogger:status>SOFT_TRASHED</blogger:status>
+    <author><name>Author</name></author><title>Trash</title><content type="html">Trash</content>
+    <published>2022-01-01T00:00:00Z</published><updated>2022-01-01T00:00:00Z</updated>
+    <blogger:filename>/2022/01/trash.html</blogger:filename>
+  </entry>
+  <entry>
+    <id>page-1</id><blogger:type>PAGE</blogger:type><blogger:status>LIVE</blogger:status>
+    <author><name>Author</name></author><title>Page</title><content type="html">Page</content>
+    <published>2020-01-01T00:00:00Z</published><updated>2020-01-01T00:00:00Z</updated>
+    <blogger:filename>/p/page.html</blogger:filename>
+  </entry>
+  <entry>
+    <id>comment-1</id><blogger:type>COMMENT</blogger:type><blogger:status>LIVE</blogger:status>
+    <author><name>Reader</name></author><content type="html">Comment</content>
+    <published>2020-01-01T00:00:00Z</published><updated>2020-01-01T00:00:00Z</updated>
+  </entry>
+</feed>

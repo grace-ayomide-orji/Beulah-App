@@ -2190,7 +2190,9 @@ p.social-icons span i:hover{
     margin-bottom: 0;
 }
 
-.reading-resource-parent p, .reading-resource-parent span, .reading-resource-parent strong {
+.reading-resource-parent:not(.article-detail-wrapper) p,
+.reading-resource-parent:not(.article-detail-wrapper) span,
+.reading-resource-parent:not(.article-detail-wrapper) strong {
 	margin-bottom:40px;
 	word-spacing:1.5px;
 	letter-spacing:0.5px;
@@ -2507,8 +2509,37 @@ p.social-icons span i:hover{
     font-family: "Nunito", sans-serif;
     font-size: 18px;
     line-height: 1.8;
-    margin-bottom: 28px;
     letter-spacing: 0;
+}
+
+.article-body-content li {
+    margin-bottom: 10px;
+}
+
+.blog-article .blog-article-content p {
+    margin: 0 0 32px;
+}
+
+.blog-article .blog-article-content > p:first-child {
+    display: flow-root;
+}
+
+.blog-article .blog-article-content > p + p {
+    padding-top: 12px;
+}
+
+.reading-resource-parent .message-article-content p {
+    margin: 0 0 24px;
+}
+
+.blog-article-content li p,
+.message-article-content li p {
+    margin-bottom: 0;
+}
+
+.message-article-content .article-empty-spacer {
+    display: none;
+    margin: 0;
 }
 
 .article-body-content span,
@@ -3300,7 +3331,23 @@ body.nav-open {
     .article-body-content li {
         font-size: 17px;
         line-height: 1.85;
-        margin-bottom: 22px;
+    }
+
+    .blog-article .blog-article-content p {
+        margin-bottom: 24px;
+    }
+
+    .reading-resource-parent .message-article-content p {
+        margin-bottom: 20px;
+    }
+
+    .article-body-content li {
+        margin-bottom: 8px;
+    }
+
+    .blog-article-content li p,
+    .message-article-content li p {
+        margin-bottom: 0;
     }
 
     .article-body-content .article-dropcap {
@@ -4015,7 +4062,9 @@ p.social-icons{
 	height:250px;
 }
 
-.reading-resource-parent p, .reading-resource-parent span, .reading-resource-parent strong {
+.reading-resource-parent:not(.article-detail-wrapper) p,
+.reading-resource-parent:not(.article-detail-wrapper) span,
+.reading-resource-parent:not(.article-detail-wrapper) strong {
 	font-size:15px;
 }
 
