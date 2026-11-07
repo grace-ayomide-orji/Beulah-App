@@ -59,6 +59,33 @@ def _base_template(inner_html):
 </html>"""
 
 
+def send_booking_verification_code(name, email, code):
+    inner = f"""
+    <p>Hi <strong>{name}</strong>,</p>
+    <p>Use the verification code below to confirm your counselling booking.</p>
+    <div style="background:#F4F4F4; border-radius:12px; padding:22px; margin:20px 0; text-align:center;">
+      <p style="font-size:13px; color:#666; margin-bottom:8px;">Your verification code</p>
+      <p style="font-size:32px; line-height:1.2; letter-spacing:8px; color:#6D0F15; font-weight:800; margin:0;">{code}</p>
+    </div>
+    <p>This code expires in 10 minutes. If you did not request this booking, you can safely ignore this email.</p>
+    <p>God bless,<br/><strong>Beulah Foundation for Christ</strong></p>
+    """
+
+    msg = Message(
+        subject='Verify your counselling booking',
+        sender=app.config['MAIL_DEFAULT_SENDER'],
+        recipients=[email],
+    )
+    msg.html = _base_template(inner)
+    msg.body = (
+        f'Hi {name},\n\n'
+        f'Your counselling booking verification code is {code}. '
+        'It expires in 10 minutes.\n\n'
+        'If you did not request this booking, you can ignore this email.'
+    )
+    mail.send(msg)
+
+
 # ── Booking confirmation to client ────────────────────────────────────────
 def send_booking_confirmation(booking):
     manage_url = f"{APP_URL}/book_counselling/?token={booking.booking_manage_token}"
@@ -156,6 +183,61 @@ def send_booking_rescheduled_confirmation(booking, old_date=None, old_start=None
         recipients=[booking.booker.booker_email]
     )
     msg.html = _base_template(inner)
+    mail.send(msg)
+
+
+def send_booking_attendee_reminder(booking, counselor_name=None):
+    manage_url = f"{APP_URL}/book_counselling/?token={booking.booking_manage_token}"
+    date_formatted = _format_date(booking.booking_date)
+    start = booking.booking_start_time.strftime('%H:%M')
+    end = booking.booking_end_time.strftime('%H:%M')
+
+    counselor_row = ''
+    counselor_text = ''
+    if counselor_name:
+        counselor_row = (
+            '<div class="detail-row"><span class="detail-label">Counsellor:</span>'
+            f'<span class="detail-value">{counselor_name}</span></div>'
+        )
+        counselor_text = f'\nCounsellor: {counselor_name}'
+
+    join_btn = ''
+    meet_text = ''
+    if booking.booking_meet_link:
+        join_btn = f'<a href="{booking.booking_meet_link}" class="btn">Join Meeting</a>'
+        meet_text = f'\nMeeting link: {booking.booking_meet_link}'
+
+    inner = f"""
+    <p>Hi <strong>{booking.booker.booker_name}</strong>,</p>
+    <p>This is a reminder that your counselling session starts in about 1 hour.</p>
+    <div class="detail-card">
+      <div class="detail-row"><span class="detail-label">Date:</span><span class="detail-value">{date_formatted}</span></div>
+      <div class="detail-row"><span class="detail-label">Time:</span><span class="detail-value">{start} - {end} (WAT)</span></div>
+      {counselor_row}
+    </div>
+    <p style="text-align:center; margin-top:24px">
+      {join_btn}
+      <a href="{manage_url}" class="btn btn-outline">Manage Appointment</a>
+    </p>
+    <p>God bless,<br/><strong>Beulah Foundation for Christ</strong></p>
+    """
+
+    msg = Message(
+        subject='Reminder: Your counselling session starts in about 1 hour',
+        sender=app.config['MAIL_DEFAULT_SENDER'],
+        recipients=[booking.booker.booker_email],
+    )
+    msg.html = _base_template(inner)
+    msg.body = (
+        f'Hi {booking.booker.booker_name},\n\n'
+        'Your counselling session starts in about 1 hour.\n'
+        f'Date: {date_formatted}\n'
+        f'Time: {start} - {end} (WAT)'
+        f'{counselor_text}'
+        f'{meet_text}\n\n'
+        f'Manage appointment: {manage_url}\n\n'
+        'God bless,\nBeulah Foundation for Christ'
+    )
     mail.send(msg)
 
 

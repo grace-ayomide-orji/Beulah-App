@@ -1,5 +1,14 @@
 from datetime import datetime, timedelta, date as date_cls
-from beulah_pkg.models import db, WorkingHours, BlockedDate, Booking, RecurringUnavailability
+from sqlalchemy import or_
+
+from beulah_pkg.models import (
+    db,
+    WorkingHours,
+    BlockedDate,
+    Booking,
+    BookingEmailVerification,
+    RecurringUnavailability,
+)
 
 SESSION_DURATION_MINUTES = 60
 SLOT_INTERVAL_MINUTES = 60
@@ -54,9 +63,17 @@ def get_available_slots(target_date, exclude_booking_id=None):
 
     all_slots = generate_slots(working_hours.wh_start_time, working_hours.wh_end_time)
 
-    existing_query = db.session.query(Booking.booking_start_time).filter(
+    existing_query = db.session.query(Booking.booking_start_time).outerjoin(
+        BookingEmailVerification,
+        BookingEmailVerification.booking_id == Booking.booking_id,
+    ).filter(
         Booking.booking_date == target_date,
-        Booking.booking_status != 'cancelled'
+        Booking.booking_status != 'cancelled',
+        or_(
+            Booking.booking_status != 'pending',
+            BookingEmailVerification.verification_id.is_(None),
+            BookingEmailVerification.verification_expires_at > datetime.utcnow(),
+        ),
     )
     if exclude_booking_id is not None:
         existing_query = existing_query.filter(Booking.booking_id != exclude_booking_id)

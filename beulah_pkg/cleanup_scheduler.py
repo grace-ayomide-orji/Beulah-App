@@ -6,6 +6,7 @@ import sys
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from beulah_pkg.admin_log_cleanup import delete_old_admin_logs
+from beulah_pkg.booking_verification import delete_expired_booking_verifications
 from beulah_pkg.event_cleanup import delete_expired_events
 
 
@@ -79,6 +80,18 @@ def start_cleanup_scheduler(app):
             minute=0,
             args=[app],
             id='delete_old_admin_logs',
+            replace_existing=True,
+            coalesce=True,
+            max_instances=1,
+        )
+
+    if _enabled(app, 'ENABLE_BOOKING_VERIFICATION_CLEANUP_SCHEDULER'):
+        scheduler.add_job(
+            delete_expired_booking_verifications,
+            trigger='interval',
+            minutes=5,
+            args=[app],
+            id='delete_expired_booking_verifications',
             replace_existing=True,
             coalesce=True,
             max_instances=1,
