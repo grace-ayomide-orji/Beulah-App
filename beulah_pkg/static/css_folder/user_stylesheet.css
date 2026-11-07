@@ -1775,6 +1775,11 @@ p.social-icons span i:hover{
     text-decoration: underline !important;
 }
 
+.email-verfication-step .btn.btn-secondary {
+	min-width: fit-content;
+
+}
+
 .booking-step .success-check-circle {
 	width:64px;
 	height:64px;
@@ -3915,7 +3920,14 @@ p.social-icons{
 }
 
 .counselling-form-nav {
-	gap:15px 20px;
+	display:grid;
+	grid-template-columns:repeat(2, minmax(0, 1fr));
+	gap:8px;
+}
+
+.counselling-form-nav .nav-item {
+	width:100%;
+	min-width:0;
 }
 
 .counselling-form-padding{
@@ -3924,11 +3936,50 @@ p.social-icons{
 }
 
 .counselling-form-nav li button {
+	dis:flex;
+	align-items:center;
+	justify-content:center;
+	gap:5px;
+	width:100%;
+	min-height:44px;
 	padding:8px 6px !important;
 	font-size:15px;
+	line-height:1.2;
+	white-space:normal;
 	i{
-		margin-right:5px;
+		margin-right:0;
+		flex-shrink:0;
 	}
+}
+
+.verification-actions {
+	flex-direction:column;
+}
+
+.verification-actions .btn {
+	width:100%;
+	min-height:44px;
+}
+
+#confirmSummary .d-flex {
+	align-items:flex-start;
+	gap:10px;
+}
+
+#confirmSummary strong {
+	text-align:right;
+	overflow-wrap:anywhere;
+}
+
+#bookingProgress {
+	gap:6px !important;
+}
+
+.step-line {
+	width:auto;
+	min-width:8px;
+	max-width:24px;
+	flex:1 1 12px;
 }
 
 .overview-tab > * + * {
@@ -4167,6 +4218,7 @@ p.not-found{
     .article-share-button span {
         display: none !important;
     }
+
 }
 
 @media screen and (max-width:380px) {

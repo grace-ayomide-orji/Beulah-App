@@ -7,9 +7,11 @@ import argparse
 from collections import Counter
 from datetime import datetime, timezone
 from hashlib import sha256
+import importlib.metadata
 import json
 import os
 from pathlib import Path
+import re
 import sys
 from typing import Any
 import unicodedata
@@ -46,6 +48,11 @@ from beulah_pkg.blogger_normalization import (  # noqa: E402
 
 LIVE_ONLY = {'LIVE'}
 OTHER_DASHES = {'\u00ad', '\u2043', '\u2212'}
+HTML_COMMENT_RE = re.compile(r'<!--[\s\S]*?-->', re.IGNORECASE)
+NON_RENDERED_BLOCK_RE = re.compile(
+    r'<\s*(style|script)\b[^>]*>[\s\S]*?<\s*/\s*\1\s*>',
+    re.IGNORECASE,
+)
 
 # Stable Blogger identities derived from feed.atom. Titles, requested slugs, and
 # publication timestamps are guardrails; production Resource IDs are never used.
@@ -174,6 +181,102 @@ def dash_counts(value: str) -> dict[str, int]:
     return {f'U+{ord(character):04X}': count for character, count in sorted(counts.items())}
 
 
+def source_visible_html(value: str) -> str:
+    """Remove markup that a browser never exposes as visible article text.
+
+    This deliberately does not apply Unicode normalization or alter entities,
+    text nodes, or visible punctuation. The HTML5 parser still decodes entities
+    identically on both sides of the comparison.
+    """
+    without_comments = HTML_COMMENT_RE.sub('', value or '')
+    return NON_RENDERED_BLOCK_RE.sub('', without_comments)
+
+
+def character_details(character: str | None) -> dict[str, Any] | None:
+    if character is None:
+        return None
+    return {
+        'character': character,
+        'code_point': f'U+{ord(character):04X}',
+        'unicode_name': unicodedata.name(character, '<unnamed>'),
+    }
+
+
+def first_sequence_mismatch(
+    original: list[str],
+    prepared: list[str],
+) -> tuple[int | None, str | None, str | None]:
+    length = max(len(original), len(prepared))
+    for index in range(length):
+        original_character = original[index] if index < len(original) else None
+        prepared_character = prepared[index] if index < len(prepared) else None
+        if original_character != prepared_character:
+            return index, original_character, prepared_character
+    return None, None, None
+
+
+def dash_preparation_diagnostic(
+    *,
+    blogger_entry_id: str,
+    title: str,
+    original_html: str,
+    prepared_html: str,
+) -> dict[str, Any]:
+    # Retain the former raw-parser result in the diagnostic so the false
+    # positive is fully auditable. Validation uses only browser-visible source.
+    raw_extracted = dash_sequence(semantic_signature(original_html).visible_text)
+    visible_original = dash_sequence(
+        semantic_signature(source_visible_html(original_html)).visible_text
+    )
+    prepared = dash_sequence(semantic_signature(prepared_html).visible_text)
+    mismatch_index, original_character, prepared_character = first_sequence_mismatch(
+        raw_extracted,
+        prepared,
+    )
+    comment_text = ''.join(HTML_COMMENT_RE.findall(original_html or ''))
+    non_rendered_blocks = NON_RENDERED_BLOCK_RE.findall(original_html or '')
+    return {
+        'blogger_entry_id': blogger_entry_id,
+        'title': title,
+        'original_dash_sequence': ''.join(raw_extracted),
+        'original_dash_code_points': [f'U+{ord(item):04X}' for item in raw_extracted],
+        'prepared_dash_sequence': ''.join(prepared),
+        'prepared_dash_code_points': [f'U+{ord(item):04X}' for item in prepared],
+        'first_mismatch_position': mismatch_index,
+        'original_character': character_details(original_character),
+        'prepared_character': character_details(prepared_character),
+        'non_rendered_comment_blocks': len(HTML_COMMENT_RE.findall(original_html or '')),
+        'non_rendered_comment_dash_counts': dash_counts(comment_text),
+        'non_rendered_style_script_blocks': len(non_rendered_blocks),
+        'visible_original_dash_sequence': ''.join(visible_original),
+        'visible_original_dash_code_points': [
+            f'U+{ord(item):04X}' for item in visible_original
+        ],
+        'visible_sequence_preserved': visible_original == prepared,
+        'diagnosis': (
+            'false_positive_from_non_rendered_word_style_comments'
+            if raw_extracted != prepared and visible_original == prepared
+            else 'real_visible_dash_mismatch'
+            if visible_original != prepared
+            else 'no_mismatch'
+        ),
+    }
+
+
+def runtime_versions() -> dict[str, str]:
+    try:
+        from bleach._vendor import html5lib as vendored_html5lib
+        html5lib_version = vendored_html5lib.__version__
+    except (ImportError, AttributeError):
+        html5lib_version = '<unavailable>'
+    return {
+        'python': sys.version.split()[0],
+        'bleach': importlib.metadata.version('bleach'),
+        'bleach_vendored_html5lib': html5lib_version,
+        'sqlalchemy': importlib.metadata.version('SQLAlchemy'),
+    }
+
+
 def validate_hard_break_rules(feed: FeedData) -> list[dict[str, Any]]:
     by_id = {entry.entry_id: entry for entry in feed.entries}
     errors = []
@@ -287,16 +390,28 @@ def prepare_final_plan(
     normalized_posts: list[PreparedPost] = []
     planned_resources = []
     hard_break_corrections = []
+    dash_validation_diagnostics = []
 
     for post in posts:
         source = post.source
         try:
-            source_signature = semantic_signature(source.content_html)
+            diagnostic = dash_preparation_diagnostic(
+                blogger_entry_id=source.entry_id,
+                title=post.title,
+                original_html=source.content_html,
+                prepared_html=post.body_html,
+            )
+            if diagnostic['original_dash_sequence'] != diagnostic['prepared_dash_sequence']:
+                dash_validation_diagnostics.append(diagnostic)
+            source_signature = semantic_signature(source_visible_html(source.content_html))
             before_signature = semantic_signature(post.body_html)
             source_dash_sequence = dash_sequence(source_signature.visible_text)
             before_dash_sequence = dash_sequence(before_signature.visible_text)
             if source_dash_sequence != before_dash_sequence:
-                raise ValueError('Importer preparation changed original Blogger dash characters.')
+                raise ValueError(
+                    'Importer preparation changed visible Blogger dash characters: '
+                    + json.dumps(diagnostic, ensure_ascii=False)
+                )
             full = normalize_resource_html(post.body_html, post.content_json)
             if full.validation_errors:
                 raise ValueError('; '.join(full.validation_errors))
@@ -367,6 +482,7 @@ def prepare_final_plan(
         'dry_run': True,
         'database_writes_performed': False,
         'generated_at_utc': datetime.now(timezone.utc).isoformat(),
+        'runtime_versions': runtime_versions(),
         'feed': {
             'id': feed.feed_id,
             'title': feed.title,
@@ -388,6 +504,7 @@ def prepare_final_plan(
             'hard_break_boundaries_split': sum(
                 item['boundaries_split'] for item in hard_break_corrections
             ),
+            'dash_validation_diagnostics': len(dash_validation_diagnostics),
             'skipped_entries': len(skipped),
             'errors': len(errors),
             'warnings': len(import_report.get('warnings') or []),
@@ -398,6 +515,7 @@ def prepare_final_plan(
         'errors': errors,
         'planned_resources': planned_resources,
         'hard_break_corrections': hard_break_corrections,
+        'dash_validation_diagnostics': dash_validation_diagnostics,
         'created_production_resource_ids': [],
         'imported': [],
         'rollback': {

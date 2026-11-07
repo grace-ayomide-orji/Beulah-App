@@ -57,7 +57,8 @@ def create_app():
         app.config.update(
             TESTING=True,
             DEBUG=True,
-            SQLALCHEMY_DATABASE_URI=database_uri
+            SQLALCHEMY_DATABASE_URI=database_uri,
+            SQLALCHEMY_ENGINE_OPTIONS={},
         )
     else:
         # Override specific settings for development (optional)

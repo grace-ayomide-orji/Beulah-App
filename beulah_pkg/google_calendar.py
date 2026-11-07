@@ -7,6 +7,16 @@ from googleapiclient.discovery import build
 TIMEZONE = 'Africa/Lagos'
 
 
+def _admin_reminders():
+    return {
+        'useDefault': False,
+        'overrides': [
+            {'method': 'email', 'minutes': 24 * 60},
+            {'method': 'popup', 'minutes': 60},
+        ],
+    }
+
+
 def _get_calendar_service():
     required = {
         'GOOGLE_REFRESH_TOKEN': os.environ.get('GOOGLE_REFRESH_TOKEN'),
@@ -87,13 +97,7 @@ def create_calendar_event(date_str, start_time_str, end_time_str, client_email, 
             }
         },
 
-        'reminders': {
-            'useDefault': False,
-            'overrides': [
-                {'method': 'email', 'minutes': 24 * 60},
-                {'method': 'popup', 'minutes': 60},
-            ],
-        },
+        'reminders': _admin_reminders(),
     }
 
     calendar_id = os.environ.get(
@@ -189,6 +193,7 @@ def update_calendar_event(event_id, date_str, start_time_str, end_time_str):
         body={
             'start': {'dateTime': f'{date_str}T{start_time_str}:00', 'timeZone': TIMEZONE},
             'end': {'dateTime': f'{date_str}T{end_time_str}:00', 'timeZone': TIMEZONE},
+            'reminders': _admin_reminders(),
         },
         sendUpdates='all',
     ).execute())

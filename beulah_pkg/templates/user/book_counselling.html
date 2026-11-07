@@ -167,6 +167,8 @@
             <div class="step-dot" data-step="3">3</div>
             <div class="step-line"></div>
             <div class="step-dot" data-step="4">4</div>
+            <div class="step-line"></div>
+            <div class="step-dot" data-step="5">5</div>
           </div>
         
           <form id="bookingForm">
@@ -223,7 +225,7 @@
         
             <!-- ═══════ STEP 2: Date & Time ═══════ -->
             <div class="booking-step" id="step2" data-step="2" style="display:none;">
-              <h5 class="mb-3">Pick a Preferred date &amp; time</h5>
+              <h5 class="mb-3" id="dateLabel">Pick a Preferred date &amp; time</h5>
         
               <div class="input-style-1">
                 <input type="date"  name="date" id="bookingDate" min="{{ today }}" required>
@@ -306,8 +308,51 @@
               </div>
             </div>
 
-            <!-- ═══════ STEP 5: Success ═══════ -->
-            <div class="booking-step text-center" id="stepSuccess" data-step="5" style="display:none;">
+            <!-- STEP 5: Email verification -->
+            <div class="booking-step email-verfication-step" id="stepVerification" data-step="5" style="display:none;">
+              <h5 class="mb-2">Verify your email</h5>
+              <p class="text-muted mb-3">
+                We sent a six-digit code to <strong id="verificationEmail"></strong>.
+                Your selected time is held for 10 minutes.
+              </p>
+
+              <div class="input-style-1">
+                <input
+                  type="text"
+                  id="verificationCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  pattern="[0-9]{6}"
+                  placeholder="000000"
+                  aria-describedby="verificationHelp"
+                >
+                <p class="text-muted small mt-2" id="verificationHelp">
+                  Check your spam folder if the email does not appear shortly.
+                </p>
+              </div>
+
+              <div id="verificationError" class="alert alert-danger" style="display:none;"></div>
+              <div id="verificationNotice" class="alert alert-success" style="display:none;"></div>
+
+              <div class="d-flex gap-2 mt-3 verification-actions">
+                <button type="button" class="btn btn-secondary flex-fill" id="changeVerificationEmailBtn">
+                  Change Email
+                </button>
+                <button type="button" class="btn flex-fill button_submit" id="verifyBookingBtn">
+                  Verify &amp; Book
+                </button>
+              </div>
+
+              <div class="text-center mt-3">
+                <button type="button" class="btn btn-link p-0" id="resendVerificationBtn" disabled>
+                  Resend code in <span id="resendCountdown">60</span>s
+                </button>
+              </div>
+            </div>
+
+            <!-- STEP 6: Success -->
+            <div class="booking-step text-center" id="stepSuccess" data-step="6" style="display:none;">
  
               <div class="success-check-circle">
                 <i class="fa-solid fa-check"></i>
@@ -649,20 +694,50 @@
       }).then(r => r.json().then(data => ({ ok: r.ok, data })));
     }
 
+    const activeTabStorageKey = 'beulahCounsellingActiveTab';
     const tabTriggerEls = document.querySelectorAll('#bookingTabs button[data-bs-toggle="tab"]');
     tabTriggerEls.forEach(function (triggerEl) {
       triggerEl.addEventListener('shown.bs.tab', function (event) {
-        const targetHash = event.target.getAttribute('data-bs-target'); 
-        history.replaceState(null, '', targetHash);
+        const target = event.target.getAttribute('data-bs-target');
+        try {
+          window.sessionStorage.setItem(activeTabStorageKey, target);
+        } catch (error) {
+          // The tabs still work when browser storage is unavailable.
+        }
+
+        window.setTimeout(function () {
+          if (window.location.hash) {
+            history.replaceState(null, '', window.location.pathname + window.location.search);
+          }
+        }, 0);
       });
     });
+
+    function findTabTrigger(target) {
+      if (!target) return null;
+      return document.querySelector('#bookingTabs button[data-bs-target="' + target + '"]');
+    }
  
     function activateTabFromHash() {
       const hash = window.location.hash;
       if (!hash) return false;
-      const trigger = document.querySelector('#bookingTabs button[data-bs-target="' + hash + '"]');
+      const trigger = findTabTrigger(hash);
       if (!trigger) return false;
-      new bootstrap.Tab(trigger).show();
+      bootstrap.Tab.getOrCreateInstance(trigger).show();
+      return true;
+    }
+
+    function activateTabFromSession() {
+      let savedTarget = '';
+      try {
+        savedTarget = window.sessionStorage.getItem(activeTabStorageKey) || '';
+      } catch (error) {
+        return false;
+      }
+
+      const trigger = findTabTrigger(savedTarget);
+      if (!trigger) return false;
+      bootstrap.Tab.getOrCreateInstance(trigger).show();
       return true;
     }
 
@@ -733,7 +808,7 @@
       });
  
       const progress = document.getElementById('bookingProgress');
-      if (stepNum <= 4) {
+      if (stepNum <= 5) {
         progress.style.display = 'flex';
         dots.forEach(d => {
           d.classList.toggle('active', parseInt(d.dataset.step, 10) <= stepNum);
@@ -771,7 +846,7 @@
         sessionFormatInput.value = this.dataset.format;
         const isRecurring = this.dataset.format === 'recurring';
         recurringFields.style.display = isRecurring ? 'flex' : 'none';
-        dateLabel.textContent = isRecurring ? 'Start Date' : 'Preferred Date';
+        dateLabel.textContent = isRecurring ? 'Pick a start date & time' : 'Pick a preferred date & time';
       });
     });
   
@@ -844,8 +919,69 @@
     }
   
     const bookingError = document.getElementById('bookingError');
-    const bookingSuccess = document.getElementById('bookingSuccess');
     const submitBtn = document.getElementById('submitBookingBtn');
+    const verificationCode = document.getElementById('verificationCode');
+    const verificationError = document.getElementById('verificationError');
+    const verificationNotice = document.getElementById('verificationNotice');
+    const verifyBookingBtn = document.getElementById('verifyBookingBtn');
+    const resendVerificationBtn = document.getElementById('resendVerificationBtn');
+    const changeVerificationEmailBtn = document.getElementById('changeVerificationEmailBtn');
+    let verificationToken = null;
+    let verificationEmail = '';
+    let resendTimer = null;
+    let verificationConfirmed = false;
+
+    function startResendCountdown(seconds) {
+      if (resendTimer) clearInterval(resendTimer);
+      let remaining = Math.max(0, parseInt(seconds || 0, 10));
+
+      function renderCountdown() {
+        if (remaining <= 0) {
+          clearInterval(resendTimer);
+          resendTimer = null;
+          resendVerificationBtn.disabled = false;
+          resendVerificationBtn.textContent = 'Resend code';
+          return;
+        }
+        resendVerificationBtn.disabled = true;
+        resendVerificationBtn.innerHTML = 'Resend code in <span>' + remaining + '</span>s';
+        remaining -= 1;
+      }
+
+      renderCountdown();
+      resendTimer = setInterval(renderCountdown, 1000);
+    }
+
+    function showBookingSuccess(data) {
+      const manageUrl = data.manage_url || (
+        window.location.origin + window.location.pathname + '?token=' + data.manage_token
+      );
+
+      let msg = '';
+      if (data.meet_link) {
+        msg = 'A confirmation email with your Google Meet link has been sent to <strong>' + verificationEmail + '</strong>.';
+        msg += ' <a href="' + data.meet_link + '" target="_blank" rel="noopener noreferrer">Join Meeting</a>';
+      } else {
+        msg = 'Your booking was confirmed, but the Google Meet link could not be generated automatically. We will follow up by email.';
+      }
+      if (data.bookings_created > 1) {
+        msg += ' <strong>' + data.bookings_created + ' sessions</strong> were scheduled.';
+      }
+      document.getElementById('successMessage').innerHTML = msg;
+
+      const linkEl = document.getElementById('manageLinkDisplay');
+      linkEl.textContent = manageUrl;
+      linkEl.href = manageUrl;
+      window.currentManageToken = data.manage_token;
+      verificationToken = null;
+      verificationConfirmed = true;
+      changeVerificationEmailBtn.disabled = true;
+      verifyBookingBtn.disabled = true;
+      resendVerificationBtn.disabled = true;
+      verificationCode.disabled = true;
+      if (resendTimer) clearInterval(resendTimer);
+      goToStep(6);
+    }
   
     submitBtn.addEventListener('click', function () {
       bookingError.style.display = 'none';
@@ -866,7 +1002,7 @@
       };
   
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Booking…';
+      submitBtn.textContent = 'Sending code...';
   
       postJSON('/book/submit/', payload).then(({ ok, data }) => {
         submitBtn.disabled = false;
@@ -879,33 +1015,111 @@
           return;
         }
   
-        const manageUrl = data.manage_url || (window.location.origin + window.location.pathname + '?token=' + data.manage_token);
- 
-        let msg = '';
-        if (data.meet_link) {
-          msg = 'A confirmation email with your Google Meet link has been sent to <strong>' + payload.email + '</strong>.';
-          msg += ' <a href="' + data.meet_link + '" target="_blank" rel="noopener noreferrer">Join Meeting</a>';
-        } else {
-          msg = 'Your booking was confirmed, but the Google Meet link could not be generated automatically. We will follow up by email.';
-        }
-        if (data.bookings_created > 1) {
-          msg += ' <strong>' + data.bookings_created + ' sessions</strong> were scheduled.';
-        }
-        document.getElementById('successMessage').innerHTML = msg;
- 
-        const linkEl = document.getElementById('manageLinkDisplay');
-        linkEl.textContent = manageUrl;
-        linkEl.href = manageUrl;
- 
-        window.currentManageToken = data.manage_token; 
- 
+        verificationToken = data.verification_token;
+        verificationEmail = data.masked_email || '';
+        verificationConfirmed = false;
+        changeVerificationEmailBtn.disabled = false;
+        verificationCode.disabled = false;
+        document.getElementById('verificationEmail').textContent = verificationEmail;
+        verificationCode.value = '';
+        verificationError.style.display = 'none';
+        verificationNotice.style.display = 'none';
+        startResendCountdown(data.resend_after || 60);
         goToStep(5);
+        verificationCode.focus();
       }).catch(() => {
         submitBtn.disabled = false;
         submitBtn.textContent = 'Confirm Booking';
         bookingError.textContent = 'Network error. Please try again.';
         bookingError.style.display = 'block';
       });
+    });
+
+    verificationCode.addEventListener('input', function () {
+      this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    });
+
+    verificationCode.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        verifyBookingBtn.click();
+      }
+    });
+
+    verifyBookingBtn.addEventListener('click', function () {
+      verificationError.style.display = 'none';
+      verificationNotice.style.display = 'none';
+      const code = verificationCode.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        verificationError.textContent = 'Enter the six-digit code from your email.';
+        verificationError.style.display = 'block';
+        return;
+      }
+
+      verifyBookingBtn.disabled = true;
+      changeVerificationEmailBtn.disabled = true;
+      verifyBookingBtn.textContent = 'Verifying...';
+      postJSON('/book/verify-email/', {
+        verification_token: verificationToken,
+        code: code
+      }).then(({ ok, data }) => {
+        verifyBookingBtn.textContent = 'Verify & Book';
+        if (!ok || !data.success) {
+          verifyBookingBtn.disabled = false;
+          changeVerificationEmailBtn.disabled = false;
+          verificationError.textContent = data.message || 'The code could not be verified.';
+          verificationError.style.display = 'block';
+          return;
+        }
+        showBookingSuccess(data);
+      }).catch(() => {
+        verifyBookingBtn.disabled = false;
+        changeVerificationEmailBtn.disabled = false;
+        verifyBookingBtn.textContent = 'Verify & Book';
+        verificationError.textContent = 'Network error. Please try again.';
+        verificationError.style.display = 'block';
+      });
+    });
+
+    resendVerificationBtn.addEventListener('click', function () {
+      verificationError.style.display = 'none';
+      verificationNotice.style.display = 'none';
+      resendVerificationBtn.disabled = true;
+      postJSON('/book/resend-verification/', {
+        verification_token: verificationToken
+      }).then(({ ok, data }) => {
+        if (!ok || !data.success) {
+          verificationError.textContent = data.message || 'The code could not be resent.';
+          verificationError.style.display = 'block';
+          startResendCountdown(data.retry_after || 60);
+          return;
+        }
+        verificationNotice.textContent = data.message;
+        verificationNotice.style.display = 'block';
+        verificationCode.value = '';
+        verificationCode.focus();
+        startResendCountdown(data.resend_after || 60);
+      }).catch(() => {
+        verificationError.textContent = 'Network error. Please try again.';
+        verificationError.style.display = 'block';
+        startResendCountdown(60);
+      });
+    });
+
+    changeVerificationEmailBtn.addEventListener('click', function () {
+      if (verificationConfirmed || changeVerificationEmailBtn.disabled) return;
+      const tokenToRelease = verificationToken;
+      verificationToken = null;
+      if (resendTimer) clearInterval(resendTimer);
+      verificationCode.value = '';
+      turnstile.reset(document.getElementById('turnstileBooking'));
+      goToStep(3);
+      document.getElementById('bookerEmail').focus();
+      if (tokenToRelease) {
+        postJSON('/book/cancel-verification/', {
+          verification_token: tokenToRelease
+        }).catch(() => {});
+      }
     });
   
     goToStep(1);
@@ -1132,10 +1346,10 @@
 
     // Auto-lookup if a token was prefilled from the email link
     if (manageTokenInput.value.trim()) {
-      new bootstrap.Tab(document.getElementById('manage-tab')).show();
+      bootstrap.Tab.getOrCreateInstance(document.getElementById('manage-tab')).show();
       lookupBooking();
-    } else {
-      activateTabFromHash();
+    } else if (!activateTabFromHash()) {
+      activateTabFromSession();
     }
 
     // ── Donate tab ────────────────────────────────────────────────────────

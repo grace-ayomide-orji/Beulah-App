@@ -278,9 +278,44 @@ class Booking(db.Model):
 
     booking_date_added = db.Column(db.DateTime, default=datetime.utcnow)
     booking_updated_date = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    booking_attendee_reminder_sent_for_start = db.Column(db.DateTime, nullable=True)
 
     def __repr__(self):
         return f"<Booking {self.booking_id} on {self.booking_date}>"
+
+
+class BookingEmailVerification(db.Model):
+    __tablename__ = 'booking_email_verifications'
+
+    verification_id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    verification_token = db.Column(db.String(64), nullable=False, unique=True, index=True)
+    booking_id = db.Column(
+        db.Integer,
+        db.ForeignKey('bookings.booking_id', ondelete='CASCADE'),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+    verification_code_hash = db.Column(db.String(64), nullable=False)
+    verification_expires_at = db.Column(db.DateTime, nullable=False, index=True)
+    verification_resend_at = db.Column(db.DateTime, nullable=False)
+    verification_attempts = db.Column(db.Integer, nullable=False, default=0)
+    verification_send_count = db.Column(db.Integer, nullable=False, default=1)
+    verification_verified_at = db.Column(db.DateTime, nullable=True)
+    verification_date_added = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+    booking = db.relationship(
+        'Booking',
+        backref=db.backref(
+            'email_verification',
+            uselist=False,
+            cascade='all, delete-orphan',
+            passive_deletes=True,
+        ),
+    )
+
+    def __repr__(self):
+        return f"<BookingEmailVerification {self.verification_id}>"
 
 
 
