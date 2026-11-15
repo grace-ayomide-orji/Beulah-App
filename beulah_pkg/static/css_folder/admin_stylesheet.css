@@ -672,6 +672,7 @@ input:-webkit-autofill:active {
     display: none;
     position: fixed;
     inset: 0;
+    overflow: visible;
     z-index: 1050;
     align-items: center;
     justify-content: center;
@@ -682,6 +683,9 @@ input:-webkit-autofill:active {
 .appointment-modal-card {
     max-width: 520px;
     width: 100%;
+    min-height:fit-content;
+    overflow-y: visible;
+    position: relative;
 }
 
 .appointment-modal-grid {
@@ -702,6 +706,46 @@ input:-webkit-autofill:active {
 
 .appointment-modal-actions .submit-btn-primary {
     flex: 1 1 auto;
+}
+
+.appointment-cancel-scope {
+  padding: 14px;
+  border: 1px solid #efc7ca;
+  border-radius: 8px;
+  background: #fffafa;
+}
+
+.appointment-cancel-heading {
+  margin-bottom: 2px;
+  color: #6D0F15;
+  font-weight: 800;
+}
+
+.appointment-cancel-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid #e2e2e2;
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.appointment-cancel-option input {
+  margin-top: 4px;
+  accent-color: #6D0F15;
+}
+
+.appointment-cancel-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.appointment-cancel-option small {
+  color: #6c757d;
 }
 
 @media (max-width: 575px) {
@@ -2596,15 +2640,6 @@ input:-webkit-autofill:active {
 
 
 
-
-
-
-
-
-
-
-
-
 @media screen and (max-width:900px) {
 
     .nav-header.expanded, .nav-header.collapsed{
@@ -2725,6 +2760,68 @@ input:-webkit-autofill:active {
     .tiptap-editor {
         padding: 18px;
     }
+
+     .admin-blog-preview-card .admin-table-card-header {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .admin-blog-preview-banner {
+        min-height: 150px;
+        padding: 28px 16px;
+    }
+
+    .admin-blog-preview-banner h1 {
+        font-size: 31px;
+    }
+
+    .admin-article-detail-wrapper {
+        padding: 42px 4% 54px;
+    }
+
+    .article-detail-meta-share {
+        align-items: center;
+        gap: 16px;
+        margin-bottom: 26px;
+    }
+
+    .article-share-button {
+        margin-left: auto;
+    }
+
+    .article-body-content p,
+    .article-body-content li {
+        font-size: 18px;
+        line-height: 1.85;
+        margin-bottom: 22px;
+    }
+
+    .article-body-content .article-dropcap {
+        font-size: 3.35em;
+        height: 58px;
+        margin: 0 10px 0 0 !important;
+    }
+}
+
+@media (max-width: 575px) {
+  .appointment-modal {
+    align-items: flex-start;
+    overflow-y: auto;
+  }
+
+  .appointment-modal-card {
+    margin: auto 0;
+  }
+
+  .appointment-modal-actions {
+    flex-direction: column;
+  }
+
+  .appointment-modal-actions .submit-btn-secondary,
+  .appointment-modal-actions .submit-btn-primary {
+    width: 100%;
+  }
 }
 
 @media (max-width: 530px) {
@@ -2833,6 +2930,22 @@ input:-webkit-autofill:active {
 
 
 }
+
+@media screen and (max-width:480px) {
+    .article-detail-meta-share {
+        flex-direction: row;
+        align-items: center;
+    }
+
+    .article-share-button {
+        margin-left: auto;
+        gap: 0;
+    }
+
+    .article-share-button span {
+        display: none !important;
+    }
+}
         
 @media screen and (max-width:380px) {
 .admin-login-container .form {
@@ -2930,62 +3043,6 @@ input:-webkit-autofill:active {
 
 }
 
-@media screen and (max-width:768px) {
-    .admin-blog-preview-card .admin-table-card-header {
-        align-items: flex-start;
-        flex-direction: column;
-        gap: 18px;
-    }
 
-    .admin-blog-preview-banner {
-        min-height: 150px;
-        padding: 28px 16px;
-    }
 
-    .admin-blog-preview-banner h1 {
-        font-size: 31px;
-    }
 
-    .admin-article-detail-wrapper {
-        padding: 42px 4% 54px;
-    }
-
-    .article-detail-meta-share {
-        align-items: center;
-        gap: 16px;
-        margin-bottom: 26px;
-    }
-
-    .article-share-button {
-        margin-left: auto;
-    }
-
-    .article-body-content p,
-    .article-body-content li {
-        font-size: 18px;
-        line-height: 1.85;
-        margin-bottom: 22px;
-    }
-
-    .article-body-content .article-dropcap {
-        font-size: 3.35em;
-        height: 58px;
-        margin: 0 10px 0 0 !important;
-    }
-}
-
-@media screen and (max-width:480px) {
-    .article-detail-meta-share {
-        flex-direction: row;
-        align-items: center;
-    }
-
-    .article-share-button {
-        margin-left: auto;
-        gap: 0;
-    }
-
-    .article-share-button span {
-        display: none !important;
-    }
-}

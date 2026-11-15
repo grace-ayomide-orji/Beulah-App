@@ -129,6 +129,29 @@
             </div>
           </section>
 
+          <section class="counselling-community-cta counselling-form-padding">
+            <div class="community-cta-copy">
+              <p class="community-cta-label">Stay connected</p>
+              <h2>Continue growing with the ministry.</h2>
+              <p>
+                Join the Beulah Foundation for Christ WhatsApp Channel for ministry updates,
+                encouragement, and opportunities to remain part of the community after your session.
+              </p>
+              <p class="community-cta-note">
+                The channel is public ministry space and is separate from confidential counselling.
+              </p>
+            </div>
+            <a
+              href="{{ whatsapp_channel_url }}"
+              class="whatsapp-channel-button"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+              Join WhatsApp Channel
+            </a>
+          </section>
+
             <!--  Mission & Donate CTA  -->
           <!-- <section class="counselling-form-padding keep-mission-free">
             <div class="mission-content">
@@ -283,7 +306,7 @@
               <div class="bg-light rounded p-3 mb-3" id="confirmSummary"></div>
         
               <p class="text-muted small mb-3">
-                By booking, you agree to our cancellation policy: sessions must be cancelled at least 24 hours in advance.
+                If your plans change, please cancel as early as possible using your secure appointment link.
               </p>
         
               <div id="bookingError" class="alert alert-danger" style="display:none;"></div>
@@ -368,6 +391,18 @@
               <button type="button" class="btn button_submit" id="viewAppointmentBtn">
                 View Appointment <i class="fa-solid fa-arrow-right ms-1"></i>
               </button>
+
+              <div class="booking-success-community">
+                <p class="mb-2">Would you like to stay connected with the ministry?</p>
+                <a
+                  href="{{ whatsapp_channel_url }}"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <i class="fa-brands fa-whatsapp" aria-hidden="true"></i>
+                  Join our WhatsApp Channel
+                </a>
+              </div>
             </div>
  
           </form>
@@ -379,6 +414,7 @@
             <label class="form-label">Your Manage Token</label>
             <p class="text-muted small">
               Paste the token from your confirmation email - or follow the link in that email, which fills this in for you.
+              Recurring bookings show every upcoming date so you can manage one session or cancel all upcoming sessions.
             </p>
             <div>
               <input type="text"  id="manageTokenInput" value="{{ prefill_token }}" placeholder="e.g. 8f14e45f-ceea-4...">
@@ -1128,30 +1164,88 @@
     const manageTokenInput = document.getElementById('manageTokenInput');
     const manageError = document.getElementById('manageError');
     const manageResult = document.getElementById('manageResult');
+    let openCancellationFromEmail = {{ (prefill_action == 'cancel')|tojson }};
     const statusColors = {
       confirmed: '#198754', pending: '#ffc107', cancelled: '#dc3545',
       completed: '#0d6efd', no_show: '#6c757d', rescheduled: '#6f42c1'
     };
 
-  
-    function renderBookingCard(booking) {
+
+    function escapeHtml(value) {
+      return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    function renderBookingCard(booking, seriesBookings) {
+      seriesBookings = Array.isArray(seriesBookings) ? seriesBookings : [];
       const canManage = !['cancelled', 'completed'].includes(booking.status);
+      const hasSeveralUpcomingSessions = booking.is_recurring && seriesBookings.length > 1;
+      let seriesPickerHtml = '';
+
+      if (booking.is_recurring && seriesBookings.length) {
+        seriesPickerHtml =
+          '<div class="booking-series-picker mb-4">' +
+            '<div class="d-flex justify-content-between align-items-start gap-2 mb-2">' +
+              '<div><h5 class="mb-1">Upcoming recurring sessions</h5>' +
+              '<p class="text-muted small mb-0">Select a date to manage it individually.</p></div>' +
+              '<span class="booking-series-count">' + seriesBookings.length + '</span>' +
+            '</div>' +
+            '<div class="booking-series-dates">' +
+              seriesBookings.map(function (item, index) {
+                const isActive = item.booking_id === booking.booking_id;
+                return '<button type="button" class="booking-series-date' + (isActive ? ' active' : '') + '" data-series-index="' + index + '">' +
+                  '<strong>' + escapeHtml(item.date) + '</strong>' +
+                  '<span>' + escapeHtml(formatTime12Hour(item.start_time)) + '</span>' +
+                '</button>';
+              }).join('') +
+            '</div>' +
+          '</div>';
+      }
+
+      const cancelScopeHtml = hasSeveralUpcomingSessions ?
+        '<div class="cancel-scope-options">' +
+          '<label class="cancel-scope-option" for="cancelScopeSingle">' +
+            '<input type="radio" name="cancelScope" id="cancelScopeSingle" value="single" checked>' +
+            '<span><strong>This session only</strong><small>' + escapeHtml(booking.date) + ' at ' + escapeHtml(formatTime12Hour(booking.start_time)) + '</small></span>' +
+          '</label>' +
+          '<label class="cancel-scope-option" for="cancelScopeSeries">' +
+            '<input type="radio" name="cancelScope" id="cancelScopeSeries" value="series">' +
+            '<span><strong>All upcoming sessions</strong><small>Cancel all ' + seriesBookings.length + ' remaining dates in this recurring booking</small></span>' +
+          '</label>' +
+        '</div>' :
+        '<input type="hidden" name="cancelScope" value="single">';
 
       manageResult.innerHTML =
+        seriesPickerHtml +
         '<div class="card p-3 mb-3">' +
           '<div class="d-flex justify-content-between align-items-center mb-2">' +
-            '<strong>' + booking.booker_name + '</strong>' +
-            '<span class="badge" style="background:' + (statusColors[booking.status] || '#6c757d') + ';">' + booking.status + '</span>' +
+            '<strong>' + escapeHtml(booking.booker_name) + '</strong>' +
+            '<span class="badge" style="background:' + (statusColors[booking.status] || '#6c757d') + ';">' + escapeHtml(booking.status) + '</span>' +
           '</div>' +
-          '<p class="mb-1"><strong>Date:</strong> ' + booking.date + '</p>' +
-          '<p class="mb-1"><strong>Time:</strong> ' + formatTime12Hour(booking.start_time) + ' - ' + formatTime12Hour(booking.end_time) + ' (WAT)</p>' +
-          '<p class="mb-1"><strong>Format:</strong> ' + booking.session_type + '</p>' +
-          (booking.meet_link ? '<p class="mb-1"><a class="text-decoration-none hover-underline" href="' + booking.meet_link + '" target="_blank" rel="noopener noreferrer">Join Meeting</a></p>' : '') +
+          '<p class="mb-1"><strong>Date:</strong> ' + escapeHtml(booking.date) + '</p>' +
+          '<p class="mb-1"><strong>Time:</strong> ' + escapeHtml(formatTime12Hour(booking.start_time)) + ' - ' + escapeHtml(formatTime12Hour(booking.end_time)) + ' (WAT)</p>' +
+          '<p class="mb-1"><strong>Format:</strong> ' + escapeHtml(booking.session_type) + '</p>' +
+          (booking.meet_link ? '<p class="mb-1"><a class="text-decoration-none hover-underline" href="' + escapeHtml(booking.meet_link) + '" target="_blank" rel="noopener noreferrer">Join Meeting</a></p>' : '') +
         '</div>' +
         (canManage ?
-          '<div class="d-flex gap-2 mb-3">' +
+          '<div class="booking-manage-actions d-flex gap-2 mb-3">' +
             '<button type="button" class="btn btn-md button-hover-state" id="showRescheduleBtn" style="background:#6D0F15; color:#fff;">Reschedule</button>' +
             '<button type="button" class="btn btn-md btn-outline-danger" id="cancelBookingBtn">Cancel Booking</button>' +
+          '</div>' +
+
+          '<div class="booking-cancel-panel" id="cancelBookingPanel" style="display:none;">' +
+            '<h5 class="mb-2">Cancel booking</h5>' +
+            '<p class="text-muted small mb-3">Choose what should be cancelled. This cannot be undone.</p>' +
+            cancelScopeHtml +
+            '<p class="cancel-policy-note"><i class="fa-solid fa-circle-info" aria-hidden="true"></i> Please cancel as early as possible. Late cancellations are sent to the counsellor immediately.</p>' +
+            '<div class="booking-cancel-actions">' +
+              '<button type="button" class="btn btn-secondary" id="closeCancelPanelBtn">Keep Booking</button>' +
+              '<button type="button" class="btn btn-danger" id="confirmCancelBookingBtn">Confirm Cancellation</button>' +
+            '</div>' +
           '</div>' +
 
           '<div id="reschedulePanel" style="display:none;">' +
@@ -1204,6 +1298,13 @@
         : '');
 
       manageResult.style.display = 'block';
+
+      manageResult.querySelectorAll('[data-series-index]').forEach(function (button) {
+        button.addEventListener('click', function () {
+          const selected = seriesBookings[parseInt(this.dataset.seriesIndex, 10)];
+          if (selected) renderBookingCard(selected, seriesBookings);
+        });
+      });
 
       if (!canManage) return;
 
@@ -1282,7 +1383,7 @@
             }
 
             manageError.style.display = 'none';
-            renderBookingCard(data.booking);
+            renderBookingCard(data.booking, data.series_bookings);
             alertSuccess('Appointment Rescheduled', data.message);
           })
           .catch(() => {
@@ -1294,25 +1395,89 @@
           });
       });
 
-      document.getElementById('cancelBookingBtn').addEventListener('click', function () {
-        confirmDelete('Are you sure you want to cancel this appointment?')
-        .then(function (confirmed) {
-          if (!confirmed) {
-            return;
-          }
-          postJSON('/book/manage/cancel/', { token: booking.manage_token })
-            .then(({ ok, data }) => {
-              if (!ok || !data.success) {
-                manageError.textContent = data.message || 'Could not cancel.';
-                manageError.style.display = 'block';
+      const cancelPanel = document.getElementById('cancelBookingPanel');
+      const cancelBookingBtn = document.getElementById('cancelBookingBtn');
+
+      function showCancellationPanel() {
+        manageError.style.display = 'none';
+        document.getElementById('reschedulePanel').style.display = 'none';
+        cancelPanel.style.display = 'block';
+        cancelPanel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      cancelBookingBtn.addEventListener('click', function () {
+        if (cancelPanel.style.display === 'none') {
+          showCancellationPanel();
+        } else {
+          cancelPanel.style.display = 'none';
+        }
+      });
+
+      document.getElementById('closeCancelPanelBtn').addEventListener('click', function () {
+        cancelPanel.style.display = 'none';
+      });
+
+      document.getElementById('confirmCancelBookingBtn').addEventListener('click', function () {
+        const btn = this;
+        const selectedScope = manageResult.querySelector('input[name="cancelScope"]:checked') ||
+          manageResult.querySelector('input[name="cancelScope"]');
+        const scope = selectedScope ? selectedScope.value : 'single';
+        const confirmationText = scope === 'series'
+          ? 'Cancel all upcoming sessions in this recurring booking?'
+          : 'Cancel this counselling session?';
+
+        confirmDelete(confirmationText).then(function (confirmed) {
+          if (!confirmed) return;
+
+          const cancellationControls = Array.from(manageResult.querySelectorAll(
+            'button, input[name="cancelScope"]'
+          ));
+
+          function setCancellationBusy(isBusy) {
+            cancellationControls.forEach(function (control) {
+              if (isBusy) {
+                control.dataset.cancelPreviousDisabled = control.disabled ? 'true' : 'false';
+                control.disabled = true;
                 return;
               }
-              manageError.style.display = 'none';
-              booking.status = 'cancelled';
-              renderBookingCard(booking);
+
+              control.disabled = control.dataset.cancelPreviousDisabled === 'true';
+              delete control.dataset.cancelPreviousDisabled;
             });
+            btn.textContent = isBusy ? 'Cancelling...' : 'Confirm Cancellation';
+          }
+
+          setCancellationBusy(true);
+          postJSON('/book/manage/cancel/', {
+            token: booking.manage_token,
+            scope: scope
+          }).then(({ ok, data }) => {
+            if (!ok || !data.success) {
+              setCancellationBusy(false);
+              const message = data.message || 'Could not cancel your appointment.';
+              manageError.textContent = message;
+              manageError.style.display = 'block';
+              alertError('Cancellation Failed', message);
+              return;
+            }
+
+            manageError.style.display = 'none';
+            renderBookingCard(data.booking, data.series_bookings);
+            alertSuccess('Booking Cancelled', data.message);
+          }).catch(function () {
+            setCancellationBusy(false);
+            const message = 'Network error. Please try again.';
+            manageError.textContent = message;
+            manageError.style.display = 'block';
+            alertError('Cancellation Failed', message);
+          });
         });
       });
+
+      if (openCancellationFromEmail) {
+        openCancellationFromEmail = false;
+        window.setTimeout(showCancellationPanel, 100);
+      }
     }
 
     function lookupBooking() {
@@ -1330,7 +1495,7 @@
           manageError.style.display = 'block';
           return;
         }
-        renderBookingCard(data.booking);
+        renderBookingCard(data.booking, data.series_bookings);
       });
     }
 

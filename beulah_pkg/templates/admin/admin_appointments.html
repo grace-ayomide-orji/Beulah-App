@@ -90,7 +90,7 @@
               {% if b.booking_meet_link %}
                 <a class="join-action" href="{{ b.booking_meet_link }}" target="_blank" rel="noopener noreferrer" title="Join"><i class="fa-solid fa-arrow-up-right-dots"></i></a>
               {% endif %}
-              <a href="#" class="manage-btn edit-action" data-id="{{ b.booking_id }}" data-status="{{ b.booking_status }}" data-notes="{{ b.booking_notes or '' }}" data-date="{{ b.booking_date.isoformat() }}" data-start-time="{{ b.booking_start_time.strftime('%H:%M') }}" title="Manage"><i class="fa-regular fa-pen-to-square"></i></a>
+              <a href="#" class="manage-btn edit-action" data-id="{{ b.booking_id }}" data-status="{{ b.booking_status }}" data-notes="{{ b.booking_notes or '' }}" data-date="{{ b.booking_date.isoformat() }}" data-start-time="{{ b.booking_start_time.strftime('%H:%M') }}" data-is-recurring="{{ 'true' if b.series_id else 'false' }}" data-client-email="{{ b.booker.booker_email }}" title="Manage"><i class="fa-regular fa-pen-to-square"></i></a>
               <button type="button" class="delete-appointment-btn delete-action" data-id="{{ b.booking_id }}" title="Delete">
                 <i class="fa-regular fa-trash-can"></i>
               </button>
@@ -134,6 +134,24 @@
       <label class="form-label small">Private Notes</label>
       <textarea id="modalNotes" class="form-control form-control-sm" rows="3"></textarea>
     </div>
+    <div class="appointment-cancel-scope mb-3" id="modalCancellationScope" style="display:none;">
+      <p class="appointment-cancel-heading">Cancellation scope</p>
+      <p class="text-muted small mb-2" id="modalCancellationHelp"></p>
+      <label class="appointment-cancel-option" for="adminCancelSingle">
+        <input type="radio" name="adminCancelScope" id="adminCancelSingle" value="single" checked>
+        <span>
+          <strong>This appointment only</strong>
+          <small>Cancel only the selected date.</small>
+        </span>
+      </label>
+      <label class="appointment-cancel-option" for="adminCancelSeries">
+        <input type="radio" name="adminCancelScope" id="adminCancelSeries" value="series">
+        <span>
+          <strong>All upcoming recurring appointments</strong>
+          <small>Cancel every active future date in this client's recurring booking.</small>
+        </span>
+      </label>
+    </div>
     <div id="modalError" class="alert alert-danger py-2 small" style="display:none;"></div>
     <div class="appointment-modal-actions">
       <button type="button" class="btn submit-btn-secondary" id="modalCancelBtn">Close</button>
@@ -154,7 +172,22 @@ document.addEventListener('DOMContentLoaded', function () {
   const modalStartTime = document.getElementById('modalStartTime');
   const modalNotes = document.getElementById('modalNotes');
   const modalError = document.getElementById('modalError');
+  const modalCancellationScope = document.getElementById('modalCancellationScope');
+  const modalCancellationHelp = document.getElementById('modalCancellationHelp');
   let activeBookingId = null;
+  let activeBookingIsRecurring = false;
+  let activeClientEmail = '';
+
+  function syncCancellationScope() {
+    const shouldShow = modalStatus.value === 'cancelled' && activeBookingIsRecurring;
+    modalCancellationScope.style.display = shouldShow ? 'block' : 'none';
+    modalCancellationHelp.textContent = shouldShow
+      ? `Choose whether to cancel one date or all upcoming dates for ${activeClientEmail}.`
+      : '';
+    if (!shouldShow) {
+      document.getElementById('adminCancelSingle').checked = true;
+    }
+  }
 
   document.getElementById('filter-appointments').addEventListener('click', function () {
     const status = document.getElementById('filterStatus').value;
@@ -174,40 +207,63 @@ document.addEventListener('DOMContentLoaded', function () {
       modalDate.value = this.dataset.date;
       modalStartTime.value = this.dataset.startTime;
       modalNotes.value = this.dataset.notes;
+      activeBookingIsRecurring = this.dataset.isRecurring === 'true';
+      activeClientEmail = this.dataset.clientEmail || '';
       modalError.style.display = 'none';
+      syncCancellationScope();
       modal.style.display = 'flex';
     });
   });
+
+  modalStatus.addEventListener('change', syncCancellationScope);
 
   document.getElementById('modalCancelBtn').addEventListener('click', function () {
     modal.style.display = 'none';
   });
 
   document.getElementById('modalSaveBtn').addEventListener('click', function () {
-    fetch("{{ url_for('admin_update_appointment') }}", {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
-      body: JSON.stringify({
-        id: activeBookingId,
-        status: modalStatus.value,
-        date: modalDate.value,
-        start_time: modalStartTime.value,
-        notes: modalNotes.value
+    const selectedCancelScope = document.querySelector('input[name="adminCancelScope"]:checked');
+    const cancelScope = selectedCancelScope ? selectedCancelScope.value : 'single';
+
+    function saveAppointment() {
+      fetch("{{ url_for('admin_update_appointment') }}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken },
+        body: JSON.stringify({
+          id: activeBookingId,
+          status: modalStatus.value,
+          date: modalDate.value,
+          start_time: modalStartTime.value,
+          notes: modalNotes.value,
+          cancel_scope: cancelScope
+        })
       })
-    })
-      .then(r => r.json().then(data => ({ ok: r.ok, data })))
-      .then(({ ok, data }) => {
-        if (!ok || !data.success) {
-          modalError.textContent = data.message || 'Could not update.';
+        .then(r => r.json().then(data => ({ ok: r.ok, data })))
+        .then(({ ok, data }) => {
+          if (!ok || !data.success) {
+            modalError.textContent = data.message || 'Could not update.';
+            modalError.style.display = 'block';
+            return;
+          }
+          window.location.reload();
+        })
+        .catch(() => {
+          modalError.textContent = 'Network error. Please try again.';
           modalError.style.display = 'block';
-          return;
-        }
-        window.location.reload();
-      })
-      .catch(() => {
-        modalError.textContent = 'Network error. Please try again.';
-        modalError.style.display = 'block';
-      });
+        });
+    }
+
+    if (modalStatus.value !== 'cancelled') {
+      saveAppointment();
+      return;
+    }
+
+    const confirmationText = cancelScope === 'series'
+      ? `Cancel all upcoming recurring appointments for ${activeClientEmail}?`
+      : `Cancel this appointment for ${activeClientEmail}?`;
+    confirmDelete(confirmationText).then(function (confirmed) {
+      if (confirmed) saveAppointment();
+    });
   });
 
   document.querySelectorAll('.delete-appointment-btn').forEach(function (btn) {
