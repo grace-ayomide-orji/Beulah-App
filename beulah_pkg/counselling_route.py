@@ -49,6 +49,10 @@ SESSION_DURATION_MINUTES = 60
 
 # ── Payment gateway config (set these in your .env) ──────────────────────
 APP_URL = os.environ.get('APP_URL', 'http://localhost:8060')
+WHATSAPP_CHANNEL_URL = os.environ.get(
+    'WHATSAPP_CHANNEL_URL',
+    'https://whatsapp.com/channel/0029Vb935tO3QxRsFTNO1Q3U',
+)
 PAYSTACK_SECRET_KEY = os.environ.get('PAYSTACK_SECRET_KEY')
 STRIPE_SECRET_KEY = os.environ.get('STRIPE_SECRET_KEY')
 STRIPE_WEBHOOK_SECRET = os.environ.get('STRIPE_WEBHOOK_SECRET')
@@ -62,9 +66,12 @@ logger = logging.getLogger(__name__)
 @app.route('/book_counselling/')
 def book_session():
     prefill_token = request.args.get('token', '').strip()
+    prefill_action = request.args.get('action', '').strip().lower()
     return render_template(
         'user/book_counselling.html',
         prefill_token=prefill_token,
+        prefill_action=prefill_action if prefill_action == 'cancel' else '',
+        whatsapp_channel_url=WHATSAPP_CHANNEL_URL,
         today=date_cls.today().isoformat()
     )
 
@@ -133,6 +140,7 @@ def _serialize_booking(booking):
         'status': booking.booking_status,
         'meet_link': booking.booking_meet_link,
         'manage_token': booking.booking_manage_token,
+        'is_recurring': bool(booking.series_id),
     }
 
 
@@ -144,19 +152,62 @@ def _now_wat_naive():
     return datetime.utcnow() + timedelta(hours=1)
 
 
+def _active_series_bookings(booking, now_wat=None):
+    if not booking.series_id:
+        return []
+
+    now_wat = now_wat or _now_wat_naive()
+    closed_statuses = ('cancelled', 'completed', 'no_show')
+    series_bookings = db.session.query(Booking).filter(
+        Booking.series_id == booking.series_id,
+        Booking.booking_status.notin_(closed_statuses),
+        Booking.booking_date >= now_wat.date(),
+    ).order_by(
+        Booking.booking_date.asc(),
+        Booking.booking_start_time.asc(),
+    ).all()
+    return [
+        item for item in series_bookings
+        if _booking_end_datetime(item) >= now_wat
+    ]
+
+
+def _management_payload(token_booking):
+    series_bookings = _active_series_bookings(token_booking)
+    primary_booking = token_booking
+
+    if series_bookings and all(
+        item.booking_id != token_booking.booking_id
+        for item in series_bookings
+    ):
+        primary_booking = series_bookings[0]
+
+    series = {
+        'is_recurring': bool(token_booking.series_id),
+        'upcoming_count': len(series_bookings),
+        'frequency': (
+            token_booking.recurring_series.series_frequency
+            if token_booking.series_id and token_booking.recurring_series
+            else None
+        ),
+    }
+    return {
+        'booking': _serialize_booking(primary_booking),
+        'series': series,
+        'series_bookings': [
+            _serialize_booking(item) for item in series_bookings
+        ],
+    }
+
+
 def _booking_manage_token_expired(booking):
     closed_statuses = ('cancelled', 'completed', 'no_show')
-    if booking.booking_status in closed_statuses:
-        return True
-
     now_wat = _now_wat_naive()
     if booking.series_id:
-        active_future_count = db.session.query(Booking).filter(
-            Booking.series_id == booking.series_id,
-            Booking.booking_status.notin_(closed_statuses),
-            Booking.booking_date >= now_wat.date(),
-        ).all()
-        return all(_booking_end_datetime(item) < now_wat for item in active_future_count)
+        return not _active_series_bookings(booking, now_wat=now_wat)
+
+    if booking.booking_status in closed_statuses:
+        return True
 
     return _booking_end_datetime(booking) < now_wat
 
@@ -599,7 +650,7 @@ def manage_lookup():
     if _booking_manage_token_expired(booking):
         return jsonify({'success': False, 'message': 'This booking management link has expired.'}), 410
 
-    return jsonify({'success': True, 'booking': _serialize_booking(booking)})
+    return jsonify({'success': True, **_management_payload(booking)})
 
 
 @app.route('/book/manage/reschedule/', methods=['POST'])
@@ -698,13 +749,21 @@ def manage_reschedule():
             booking.booking_id
         )
 
-    return jsonify({'success': True, 'message': 'Booking rescheduled successfully.', 'booking': _serialize_booking(booking)})
+    return jsonify({
+        'success': True,
+        'message': 'Booking rescheduled successfully.',
+        **_management_payload(booking),
+    })
 
 
 @app.route('/book/manage/cancel/', methods=['POST'])
 def manage_cancel():
     data = request.get_json(silent=True) or {}
     token = (data.get('token') or '').strip()
+    scope = (data.get('scope') or 'single').strip().lower()
+
+    if scope not in ('single', 'series'):
+        return jsonify({'success': False, 'message': 'Invalid cancellation option.'}), 400
 
     booking = db.session.query(Booking).filter_by(booking_manage_token=token).first()
     if not booking:
@@ -715,39 +774,83 @@ def manage_cancel():
     if booking.booking_status in ('cancelled', 'completed'):
         return jsonify({'success': False, 'message': 'This booking can no longer be cancelled.'}), 400
 
-    session_datetime = datetime.combine(booking.booking_date, booking.booking_start_time)
     now_wat = _now_wat_naive()  # WAT is a fixed UTC+1, no DST
-    hours_left = (session_datetime - now_wat).total_seconds() / 3600
+    if scope == 'series':
+        if not booking.series_id:
+            return jsonify({
+                'success': False,
+                'message': 'This appointment is not part of a recurring booking.',
+            }), 400
+        bookings_to_cancel = _active_series_bookings(booking, now_wat=now_wat)
+    else:
+        bookings_to_cancel = [booking]
 
-    if hours_left < 24:
-        return jsonify({'success': False, 'message': 'Cancellations must be made at least 24 hours before the session.'}), 400
- 
-    try:
-        delete_calendar_event(booking.booking_calendar_event_id)
-        booking.booking_calendar_event_id = None
-        booking.booking_meet_link = None
-    except Exception:
-        logger.exception(
-            'Failed to delete Google Calendar event while cancelling booking %s.',
-            booking.booking_id
-        )
+    if not bookings_to_cancel:
+        return jsonify({
+            'success': False,
+            'message': 'There are no upcoming sessions available to cancel.',
+        }), 400
+
+    late_cancellations = [
+        item for item in bookings_to_cancel
+        if (
+            datetime.combine(item.booking_date, item.booking_start_time) - now_wat
+        ).total_seconds() < 24 * 60 * 60
+    ]
+    late_booking_ids = {
+        item.booking_id for item in late_cancellations
+    }
+
+    for item in bookings_to_cancel:
+        try:
+            delete_calendar_event(item.booking_calendar_event_id)
+            item.booking_calendar_event_id = None
+            item.booking_meet_link = None
+        except Exception:
+            logger.exception(
+                'Failed to delete Google Calendar event while cancelling booking %s.',
+                item.booking_id
+            )
+        item.booking_status = 'cancelled'
 
     try:
-        booking.booking_status = 'cancelled'
         db.session.commit()
     except Exception:
         db.session.rollback()
         return jsonify({'success': False, 'message': 'Something went wrong. Please try again.'}), 500
 
-    try:
-        send_counselor_notification('cancelled', booking)
-    except Exception:
-        logger.exception(
-            'Failed to send cancellation notification for booking %s.',
-            booking.booking_id
-        )
+    for item in bookings_to_cancel:
+        try:
+            cancel_reason = (
+                'Client cancelled less than 24 hours before the session.'
+                if item.booking_id in late_booking_ids
+                else None
+            )
+            send_counselor_notification(
+                'cancelled',
+                item,
+                cancel_reason=cancel_reason,
+            )
+        except Exception:
+            logger.exception(
+                'Failed to send cancellation notification for booking %s.',
+                item.booking_id
+            )
 
-    return jsonify({'success': True, 'message': 'Booking cancelled.'})
+    cancelled_count = len(bookings_to_cancel)
+    message = (
+        f'{cancelled_count} upcoming sessions were cancelled.'
+        if cancelled_count > 1
+        else 'Booking cancelled.'
+    )
+    if late_cancellations:
+        message += ' The counsellor has been notified of the late cancellation.'
+    return jsonify({
+        'success': True,
+        'message': message,
+        'cancelled_count': cancelled_count,
+        **_management_payload(booking),
+    })
 
 
 # ─────────────────────────────────────────────────────────────────────────

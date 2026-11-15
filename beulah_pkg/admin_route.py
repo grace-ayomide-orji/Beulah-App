@@ -2103,6 +2103,10 @@ def admin_update_appointment(admin_online):
     notes = data.get('notes')
     date_value = (data.get('date') or '').strip()
     start_time_value = (data.get('start_time') or '').strip()
+    cancel_scope = (data.get('cancel_scope') or 'single').strip().lower()
+
+    if cancel_scope not in ('single', 'series'):
+        return jsonify({'success': False, 'message': 'Invalid cancellation option.'}), 400
 
     booking = db.session.query(Booking).filter_by(booking_id=booking_id).first()
     if not booking:
@@ -2135,6 +2139,40 @@ def admin_update_appointment(admin_online):
     if is_reschedule and status == 'cancelled':
         return jsonify({'success': False, 'message': 'Cancel the appointment without changing the date or time.'}), 400
 
+    cancellation_targets = []
+    if status == 'cancelled':
+        if cancel_scope == 'series':
+            if not booking.series_id:
+                return jsonify({
+                    'success': False,
+                    'message': 'This appointment is not part of a recurring booking.',
+                }), 400
+
+            now_wat = datetime.utcnow() + timedelta(hours=1)
+            series_candidates = db.session.query(Booking).filter(
+                Booking.series_id == booking.series_id,
+                Booking.booker_id == booking.booker_id,
+                Booking.booking_status.notin_(['cancelled', 'completed', 'no_show']),
+                Booking.booking_date >= now_wat.date(),
+            ).order_by(
+                Booking.booking_date.asc(),
+                Booking.booking_start_time.asc(),
+            ).all()
+            cancellation_targets = [
+                item for item in series_candidates
+                if datetime.combine(item.booking_date, item.booking_end_time) >= now_wat
+            ]
+        elif booking.booking_status != 'cancelled':
+            cancellation_targets = [booking]
+
+        if not cancellation_targets and (
+            cancel_scope == 'series' or booking.booking_status != 'cancelled'
+        ):
+            return jsonify({
+                'success': False,
+                'message': 'There are no active appointments available to cancel.',
+            }), 400
+
     if is_reschedule:
         now_wat = datetime.utcnow() + timedelta(hours=1)
         if datetime.combine(new_date, new_start) <= now_wat:
@@ -2149,17 +2187,20 @@ def admin_update_appointment(admin_online):
         old_end = booking.booking_end_time
 
         if status:
-            if status == 'cancelled' and booking.booking_status != 'cancelled':
-                try:
-                    delete_calendar_event(booking.booking_calendar_event_id)
-                    booking.booking_calendar_event_id = None
-                    booking.booking_meet_link = None
-                except Exception:
-                    current_app.logger.exception(
-                        'Failed to delete Google Calendar event while cancelling appointment %s.',
-                        booking.booking_id
-                    )
-            booking.booking_status = status
+            if status == 'cancelled':
+                for item in cancellation_targets:
+                    try:
+                        delete_calendar_event(item.booking_calendar_event_id)
+                        item.booking_calendar_event_id = None
+                        item.booking_meet_link = None
+                    except Exception:
+                        current_app.logger.exception(
+                            'Failed to delete Google Calendar event while cancelling appointment %s.',
+                            item.booking_id
+                        )
+                    item.booking_status = 'cancelled'
+            else:
+                booking.booking_status = status
         if is_reschedule:
             try:
                 if booking.booking_calendar_event_id:
@@ -2196,6 +2237,17 @@ def admin_update_appointment(admin_online):
             booking.booking_notes = str(escape(notes))
         db.session.commit()
 
+        if cancellation_targets:
+            log_admin_action(
+                'admin_appointment_cancelled',
+                admin_online.admin_id,
+                (
+                    f'Cancelled {len(cancellation_targets)} appointment(s) for '
+                    f'{booking.booker.booker_email}; scope={cancel_scope}; '
+                    f'series_id={booking.series_id or "none"}.'
+                )
+            )
+
         if is_reschedule:
             log_admin_action(
                 'admin_appointment_rescheduled',
@@ -2226,7 +2278,15 @@ def admin_update_appointment(admin_online):
                     booking.booking_id
                 )
 
-        message = 'Appointment rescheduled.' if is_reschedule else 'Appointment updated.'
+        if cancellation_targets:
+            message = (
+                f'{len(cancellation_targets)} upcoming appointments cancelled for '
+                f'{booking.booker.booker_email}.'
+                if len(cancellation_targets) > 1
+                else f'Appointment cancelled for {booking.booker.booker_email}.'
+            )
+        else:
+            message = 'Appointment rescheduled.' if is_reschedule else 'Appointment updated.'
         return jsonify({'success': True, 'message': message}), 200
     except Exception:
         db.session.rollback()

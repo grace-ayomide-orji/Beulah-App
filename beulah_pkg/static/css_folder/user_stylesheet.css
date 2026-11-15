@@ -1794,6 +1794,228 @@ p.social-icons span i:hover{
 	color:#2e7d32; 
 	font-size:26px; 
 }
+
+.counselling-community-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 32px;
+  padding-top: 36px;
+  padding-bottom: 36px;
+  background:#68764b;
+  color: #fff;
+}
+
+.community-cta-copy {
+  max-width: 720px;
+}
+
+.community-cta-label {
+  margin-bottom: 6px;
+  color: #cdebdc;
+  font-size: 13px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.counselling-community-cta h2 {
+  margin-bottom: 10px;
+  color: #fff;
+  font-size: 28px;
+  font-weight: 900;
+}
+
+.counselling-community-cta p {
+  margin-bottom: 8px;
+  color: #fff;
+}
+
+.counselling-community-cta .community-cta-note {
+  margin-bottom: 0;
+  color: #d7e7df;
+  font-size: 13px;
+}
+
+.whatsapp-channel-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-shrink: 0;
+  min-height: 48px;
+  padding: 11px 18px;
+  border: 1px solid #fff;
+  border-radius: 8px;
+  background: #fff;
+  color: #1f4f3f;
+  font-weight: 800;
+}
+
+.whatsapp-channel-button i {
+	color: #1f4f3f;
+}
+
+.whatsapp-channel-button:hover {
+  background: #e9f7f0;
+  color: #163b2f;
+}
+
+.whatsapp-channel-button:hover i {
+	color: #163b2f;
+}
+
+.whatsapp-channel-button i {
+  font-size: 21px;
+}
+
+.booking-success-community {
+  max-width: 520px;
+  margin: 28px auto 0;
+  padding-top: 20px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.booking-success-community a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: #167c5a;
+  font-weight: 800;
+}
+
+.booking-success-community a * {
+	color: #167c5a;
+}
+
+.booking-success-community a:hover {
+	text-decoration: underline;
+}
+
+.booking-series-picker {
+  padding: 16px;
+  border: 1px solid #e1e5da;
+  border-radius: 8px;
+  background: #f8faf6;
+}
+
+.booking-series-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #68764b;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.booking-series-dates {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 0 8px;
+  scrollbar-width: none;
+}
+
+.booking-series-dates::-webkit-scrollbar {
+  display: none;
+}
+
+.booking-series-date {
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 132px;
+  padding: 10px 12px;
+  border: 1px solid #ccd3bf;
+  border-radius: 7px;
+  background: #fff;
+  color: #32382b;
+  text-align: left;
+}
+
+.booking-series-date span {
+  color: #67705d;
+  font-size: 13px;
+}
+
+.booking-series-date.active,
+.booking-series-date:hover {
+  border-color: #68764b;
+  background: #68764b;
+  color: #fff;
+}
+
+.booking-series-date.active span,
+.booking-series-date:hover span {
+  color: #fff;
+}
+
+.booking-cancel-panel {
+  margin-bottom: 20px;
+  padding: 18px;
+  border: 1px solid #efc7ca;
+  border-radius: 8px;
+  background: #fffafa;
+}
+
+.cancel-scope-options {
+  display: grid;
+  gap: 10px;
+}
+
+.cancel-scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #e1e1e1;
+  border-radius: 7px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.cancel-scope-option input {
+  margin-top: 4px;
+  accent-color: #6D0F15;
+}
+
+.cancel-scope-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cancel-scope-option small {
+  color: #6c757d;
+}
+
+.cancel-policy-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 14px 0;
+  color: #6b4b4d;
+  font-size: 13px;
+}
+
+.booking-cancel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.booking-cancel-actions .btn-danger {
+  border-color: #B4232D;
+  background: #B4232D;
+}
+
+
+
 /* counselling faq */
 
 .faq-category-label {
@@ -3382,6 +3604,42 @@ body.nav-open {
 	padding:10px;
 }
 
+}
+
+@media screen and (max-width: 600px) {
+  .counselling-community-cta {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 20px;
+    padding-top: 28px;
+    padding-bottom: 28px;
+  }
+
+  .counselling-community-cta h2 {
+    font-size: 24px;
+  }
+
+  .whatsapp-channel-button {
+    width: 100%;
+  }
+
+  .booking-manage-actions,
+  .booking-cancel-actions {
+    flex-direction: column;
+  }
+
+  .booking-manage-actions .btn,
+  .booking-cancel-actions .btn {
+    width: 100%;
+  }
+
+  .booking-cancel-actions .btn-secondary {
+    order: 1;
+  }
+
+  .booking-cancel-actions .btn-danger {
+    order: 2;
+  }
 }
 
 @media screen and (max-width:768px) and (min-width:481px) {

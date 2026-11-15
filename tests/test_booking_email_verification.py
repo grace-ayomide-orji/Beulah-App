@@ -191,6 +191,39 @@ class BookingEmailVerificationFlowTests(unittest.TestCase):
         db.session.commit()
         self.client = beulah_app.test_client()
 
+    def _recurring_bookings(self, count=3):
+        booker = Booker(
+            booker_name='Recurring Test',
+            booker_email='recurring@example.com',
+        )
+        series = RecurringSeries(
+            series_frequency='weekly',
+            series_start_date=self.target_date,
+            series_end_date=self.target_date + timedelta(days=7 * (count - 1)),
+        )
+        db.session.add_all([booker, series])
+        db.session.flush()
+
+        bookings = []
+        for index in range(count):
+            booking = Booking(
+                booker_id=booker.booker_id,
+                series_id=series.series_id,
+                booking_date=self.target_date + timedelta(days=7 * index),
+                booking_start_time=time(10, 0),
+                booking_end_time=time(11, 0),
+                booking_session_type='video',
+                booking_session_format='recurring',
+                booking_status='confirmed',
+                booking_calendar_event_id=f'event-{index + 1}',
+                booking_meet_link=f'https://meet.google.com/test-{index + 1}',
+            )
+            db.session.add(booking)
+            bookings.append(booking)
+
+        db.session.commit()
+        return bookings
+
     def tearDown(self):
         db.session.remove()
         db.metadata.drop_all(bind=db.engine, tables=list(reversed(self.tables)))
@@ -308,6 +341,140 @@ class BookingEmailVerificationFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn('does not appear able to receive email', response.get_json()['message'])
         self.assertEqual(db.session.query(Booking).count(), 0)
+
+    def test_recurring_manage_link_lists_every_upcoming_session(self):
+        bookings = self._recurring_bookings()
+
+        response = self.client.post('/book/manage/lookup/', json={
+            'token': bookings[0].booking_manage_token,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertTrue(data['series']['is_recurring'])
+        self.assertEqual(data['series']['upcoming_count'], 3)
+        self.assertEqual(len(data['series_bookings']), 3)
+
+    def test_cancel_single_recurring_session_leaves_other_dates_active(self):
+        bookings = self._recurring_bookings()
+
+        with patch('beulah_pkg.counselling_route.delete_calendar_event') as delete_event, \
+             patch('beulah_pkg.counselling_route.send_counselor_notification'):
+            response = self.client.post('/book/manage/cancel/', json={
+                'token': bookings[1].booking_manage_token,
+                'scope': 'single',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        db.session.expire_all()
+        self.assertEqual(db.session.get(Booking, bookings[1].booking_id).booking_status, 'cancelled')
+        self.assertEqual(db.session.get(Booking, bookings[0].booking_id).booking_status, 'confirmed')
+        self.assertEqual(db.session.get(Booking, bookings[2].booking_id).booking_status, 'confirmed')
+        delete_event.assert_called_once_with('event-2')
+        self.assertEqual(response.get_json()['cancelled_count'], 1)
+
+    def test_cancel_recurring_series_cancels_all_upcoming_dates(self):
+        bookings = self._recurring_bookings()
+
+        with patch('beulah_pkg.counselling_route.delete_calendar_event') as delete_event, \
+             patch('beulah_pkg.counselling_route.send_counselor_notification'):
+            response = self.client.post('/book/manage/cancel/', json={
+                'token': bookings[1].booking_manage_token,
+                'scope': 'series',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        db.session.expire_all()
+        self.assertTrue(all(
+            db.session.get(Booking, booking.booking_id).booking_status == 'cancelled'
+            for booking in bookings
+        ))
+        self.assertEqual(delete_event.call_count, 3)
+        self.assertEqual(response.get_json()['cancelled_count'], 3)
+
+    def test_late_cancellation_is_allowed_and_identified_to_counselor(self):
+        bookings = self._recurring_bookings(count=1)
+        booking = bookings[0]
+        one_hour_before = datetime.combine(
+            booking.booking_date,
+            booking.booking_start_time,
+        ) - timedelta(hours=1)
+
+        with patch(
+            'beulah_pkg.counselling_route._now_wat_naive',
+            return_value=one_hour_before,
+        ), patch(
+            'beulah_pkg.counselling_route.delete_calendar_event'
+        ) as delete_event, patch(
+            'beulah_pkg.counselling_route.send_counselor_notification'
+        ) as send_counselor:
+            response = self.client.post('/book/manage/cancel/', json={
+                'token': booking.booking_manage_token,
+                'scope': 'single',
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()['success'])
+        self.assertIn('late cancellation', response.get_json()['message'])
+        self.assertEqual(
+            db.session.get(Booking, booking.booking_id).booking_status,
+            'cancelled',
+        )
+        delete_event.assert_called_once_with('event-1')
+        send_counselor.assert_called_once_with(
+            'cancelled',
+            booking,
+            cancel_reason=(
+                'Client cancelled less than 24 hours before the session.'
+            ),
+        )
+
+    def test_original_series_link_remains_valid_after_first_date_is_cancelled(self):
+        bookings = self._recurring_bookings()
+        original_token = bookings[0].booking_manage_token
+        bookings[0].booking_status = 'cancelled'
+        db.session.commit()
+
+        response = self.client.post('/book/manage/lookup/', json={
+            'token': original_token,
+        })
+
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(data['booking']['booking_id'], bookings[1].booking_id)
+        self.assertEqual(data['series']['upcoming_count'], 2)
+
+    def test_admin_can_cancel_all_upcoming_dates_for_one_recurring_client(self):
+        from beulah_pkg.admin_route import admin_update_appointment
+
+        bookings = self._recurring_bookings()
+        payload = {
+            'id': bookings[1].booking_id,
+            'status': 'cancelled',
+            'date': bookings[1].booking_date.isoformat(),
+            'start_time': bookings[1].booking_start_time.strftime('%H:%M'),
+            'notes': '',
+            'cancel_scope': 'series',
+        }
+
+        with beulah_app.test_request_context(
+            '/admin/appointments/update/',
+            method='POST',
+            json=payload,
+        ), patch('beulah_pkg.admin_route.delete_calendar_event') as delete_event, \
+             patch('beulah_pkg.admin_route.log_admin_action'):
+            response, status_code = admin_update_appointment.__wrapped__(
+                admin_online=SimpleNamespace(admin_id=999),
+            )
+
+        self.assertEqual(status_code, 200)
+        self.assertTrue(response.get_json()['success'])
+        db.session.expire_all()
+        self.assertTrue(all(
+            db.session.get(Booking, booking.booking_id).booking_status == 'cancelled'
+            for booking in bookings
+        ))
+        self.assertEqual(delete_event.call_count, 3)
 
 
 if __name__ == '__main__':
